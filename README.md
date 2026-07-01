@@ -35,7 +35,7 @@ Built directly against the real `@cursor/sdk` v1.0.x type definitions (not guess
 
 ## Quick start
 
-**Requires [Node.js](https://nodejs.org) 18.17 or newer** (Node 22+ recommended - see [Cross-platform support](#cross-platform-support); installing Node is the only prerequisite, everything else is handled for you).
+**Requires [Node.js](https://nodejs.org) 22.13 or newer** (installing Node is the only prerequisite - everything else is handled for you). This matches `@cursor/sdk`'s own declared minimum exactly - see [Cross-platform support](#cross-platform-support) for why this gateway doesn't try to support older Node versions Cursor itself doesn't.
 
 **Windows:** double-click `start.bat`.
 **Mac/Linux:** open a terminal in this folder and run `./start.sh` (already executable in the repo; if your download/transfer method stripped that bit, `chmod +x start.sh` first).
@@ -56,20 +56,18 @@ For local development with hot reload: `npm run dev` (tsx watch) instead of `npm
 
 ## Cross-platform support
 
-This isn't a "should work" claim - Windows, Linux, and macOS support were each specifically engineered for and then verified with real, running instances (not just reasoning about the code), because early versions genuinely broke in platform-specific ways that reasoning alone did not catch. What was actually verified, and how:
+This isn't a "should work" claim - Windows and Linux support were each specifically engineered for and verified with real, running instances (not just reasoning about the code), because early versions genuinely broke in platform-specific ways that reasoning alone did not catch. What was actually verified, and how:
 
-- **Windows** - developed on and continuously tested against throughout, including every endpoint, the admin dashboard, and both smoke-test suites.
-- **Linux** - verified with a real, fresh `git clone` of this repository run inside Ubuntu 24.04 (WSL2), on **both Node 18.20.5 (this project's declared minimum) and Node 22.13.0**, exercising: `npm install`/`typecheck`/`lint`/`build`/`test` (105/105 passing), a real chat completion, streaming, session continuity, the OpenAI tool-calling bridge round trip, the admin dashboard's static assets and API, and - critically - running the actual `start.sh` script from a clean checkout with no `node_modules`/`dist` present, exactly as a new user would.
+- **Windows** - developed on and continuously tested against throughout, including every endpoint, the admin dashboard, and all smoke-test suites.
+- **Linux** - verified with a real, fresh `git clone` of this repository run inside Ubuntu 24.04 (WSL2), on **Node 22.13.0 (this project's exact declared minimum) and Node 24**, exercising: `npm ci`/`typecheck`/`lint`/`build`/`test` (105/105 passing), a real chat completion, streaming, session continuity, the OpenAI tool-calling bridge round trip, the admin dashboard's static assets and API, and - critically - running the actual `start.sh` script from a clean checkout with no `node_modules`/`dist` present, exactly as a new user would.
 - **macOS** - not physically tested (no Mac was available), but every platform-specific code path is written and reasoned about the same way as the Linux one it shares a POSIX shell and Node.js runtime with: `start.sh` is plain POSIX-compatible bash verified against real bash on Linux, and `src/utils/openBrowser.ts` has a dedicated `darwin` branch (`open <url>`) parallel to the verified Linux (`xdg-open`) and Windows (`start`) branches. macOS is the one platform here where "should work" is an informed judgment rather than a demonstrated fact - please open an issue if something doesn't.
 
 Real, previously-invisible bugs this process found and fixed (each covered by a regression test so they can't silently come back):
 
-- **`npm test`'s file glob silently didn't work on Linux at all** - `node --import tsx --test test/**/*.test.ts` relies on *something* expanding that `**` glob, and what actually does differs by shell/Node version. It happened to resolve correctly on this project's Windows dev machine, but failed outright on Linux (`sh`/`dash`, npm's default script-shell there, doesn't do bash-style `**` recursion) - this had already broken both of this repository's first two GitHub Actions CI runs on `ubuntu-latest` before this was caught. Fixed with a small platform-independent launcher (`scripts/run-tests.mjs`) that finds test files in plain Node instead of relying on shell or Node-version-specific glob behavior.
-- **`@cursor/sdk`'s default local agent storage doesn't work below Node 22.13 - on any OS.** Its default backend requires Node's built-in `node:sqlite` module (stable only in Node >= 22.13); on any earlier Node, every single local agent operation failed with "Default local agent storage requires the built-in node:sqlite module". This didn't surface in typecheck/build/test - only a real chat completion request triggers it. Fixed by explicitly configuring `JsonlLocalAgentStore` (`src/cursor/localAgentStore.ts`), which has no native dependencies and behaves identically on every supported Node version.
-- **A "`crypto` is not defined" runtime error on Node 18**, from code in `@cursor/sdk`'s dependency chain assuming the WebCrypto API is available as the bare global `crypto` - true from Node 19 onward, not on 18.x without an experimental flag. Fixed with a minimal, version-safe polyfill (`src/polyfills.ts`, imported first, before anything else) that's a no-op wherever the runtime already provides it.
+- **`npm test`'s file glob silently didn't work on Linux at all** - `node --import tsx --test test/**/*.test.ts` relies on *something* expanding that `**` glob, and what actually does differs by shell. It happened to resolve correctly on this project's Windows dev machine, but failed outright on Linux (`sh`/`dash`, npm's default script-shell there, doesn't do bash-style `**` recursion) - this had already broken this repository's first GitHub Actions CI runs on `ubuntu-latest` before it was caught. Fixed with a small, shell-independent launcher (`scripts/run-tests.mjs`) that finds test files in plain Node instead of relying on shell glob expansion at all.
 - **`start.sh` had no executable bit in git**, so a fresh clone failed with "Permission denied" even after the instructions said to run it. Fixed (`git update-index --chmod=+x start.sh`) and locked in with `.gitattributes` (`* text=auto eol=lf`) so line endings stay LF in the repository regardless of a contributor's local `core.autocrlf` setting - Windows' Git defaults to converting LF to CRLF on checkout, and a CRLF shebang line (`#!/usr/bin/env bash\r`) fails on Linux/macOS with "bad interpreter" errors.
 
-**A note on Node version support:** `@cursor/sdk`'s own `package.json` declares `engines.node: ">=22.13"` - Cursor's officially supported minimum is higher than this gateway's. Everything above is real, verified functionality on Node 18.20.5 and 22.13.0 thanks to the workarounds described, and this project keeps supporting Node >=18.17 for that reason, but Node 22+ (matching `.nvmrc`) is the safer long-term choice if you have a choice, since it's what Cursor itself tests against.
+**Why Node >=22.13 and not something lower:** earlier versions of this gateway tried to also support Node 18 (with an explicit `JsonlLocalAgentStore` override and a `WebCrypto` polyfill working around real gaps in `@cursor/sdk`'s behavior below Node 22.13, plus a CI matrix including 18/20). All of that was removed. `@cursor/sdk`'s own `package.json` declares `engines.node: ">=22.13"` - Cursor doesn't test or support anything older for this SDK, so every Node-18/20 workaround was code that existed solely to route around versions Cursor itself doesn't support, could silently break again in new ways with any future SDK update, and bought nothing real: anyone who can install Node at all can install Node 22. Matching Cursor's own requirement exactly is simpler, more honest, and more maintainable than quietly promising a compatibility range this project can't actually keep up.
 
 ## Admin dashboard
 
@@ -268,14 +266,14 @@ npm run smoke:streaming-tools    # verifies the tool-calling bridge over an SSE 
 
 There's also `scripts/smoke-test-admin.ts` for the setup wizard/admin API (`SMOKE_CURSOR_API_KEY=crsr_... npx tsx scripts/smoke-test-admin.ts` against a freshly-booted, unconfigured instance) - not wired to an npm script since it expects the server to be in the pre-setup state, unlike the others.
 
-`npm run smoke*` and the admin smoke script make real calls to the Cursor API (they need a running instance and a valid Cursor key). Everything under `npm test` is fully offline. CI (`.github/workflows/ci.yml`) runs the offline checks (typecheck, lint, unit tests, build) on Node 18/20/22 for every push and pull request; it deliberately does **not** run the live smoke tests, since that would mean handing a real `CURSOR_API_KEY` to untrusted PR runs.
+`npm run smoke*` and the admin smoke script make real calls to the Cursor API (they need a running instance and a valid Cursor key). Everything under `npm test` is fully offline. CI (`.github/workflows/ci.yml`) runs the offline checks (typecheck, lint, unit tests, build) on Node 22.13 and 24 for every push and pull request; it deliberately does **not** run the live smoke tests, since that would mean handing a real `CURSOR_API_KEY` to untrusted PR runs.
 
 This project's behavior was verified live, not just type-checked, and that process caught real bugs unit tests alone did not:
 
 - An earlier implementation naively assumed Cursor's streamed assistant text was a growing cumulative snapshot, and it silently truncated every reply to just its last fragment (a live test surfaced `"banana"` coming back as `"ana"`). Fixed and covered by `test/textAccumulator.test.ts`.
 - Explicit `session_id`s were only *incorrectly* appearing to work via a full-history-replay fallback that masked a re-keying bug. Fixed and covered by `test/sessionManager.test.ts`.
 - The first implementation of live port/host reconfiguration (`PATCH /api/admin/config`) deadlocked: it awaited the old HTTP server fully draining before responding, but the very request making that change was itself being served by the old server and couldn't finish until the handler returned - a live test hung indefinitely instead of completing. Fixed by not awaiting the drain (see the comment in `src/index.ts`) and covered by `test/serverRebind.test.ts`, which binds a real server and asserts the triggering request resolves within a timeout instead of hanging.
-- Four genuine, previously-invisible cross-platform bugs (a completely broken `npm test` on Linux, a Node-version-dependent SDK storage failure, a missing WebCrypto global on Node 18, and a non-executable `start.sh` in git) - see [Cross-platform support](#cross-platform-support) for the full account of each, and `test/findAvailablePort.test.ts` for the port-fallback logic's own regression tests.
+- Two genuine, previously-invisible cross-platform bugs (a completely broken `npm test` on Linux, and a non-executable `start.sh` in git) - see [Cross-platform support](#cross-platform-support) for the full account of each, and `test/findAvailablePort.test.ts` for the port-fallback logic's own regression tests.
 
 Each of these is also described in a code comment at the exact call site that caused it, so they don't get silently reintroduced.
 
@@ -308,7 +306,6 @@ Documented honestly rather than glossed over:
 
 ```
 src/
-  polyfills.ts              imported first, before anything else - Node-18-safe WebCrypto global polyfill
   index.ts                 entrypoint: config, startup key check, port-fallback HTTP listen + live rebind, graceful shutdown
   server.ts                Express app wiring (middleware, routes, static dashboard assets)
   config.ts                environment variable loading/validation (tolerates a missing CURSOR_API_KEY)
@@ -320,7 +317,6 @@ src/
   cursor/
     modelCatalog.ts         Cursor.models.list() caching + OpenAI model-id resolution
     sessionManager.ts       agent cache: resume / explicit session / auto-session / fresh
-    localAgentStore.ts       explicit JsonlLocalAgentStore config - Node-version-independent, see Cross-platform support
     toolBridge.ts            OpenAI tools[] -> Cursor SDKCustomTool + call capture
     runController.ts         drives agent.send()/Run.stream(), text accumulation, tool-call race, cancellation
   translate/

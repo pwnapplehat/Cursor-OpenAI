@@ -1,10 +1,8 @@
-import "./polyfills";
 import { Cursor } from "@cursor/sdk";
 import { loadConfig, ConfigError } from "./config";
 import { ConfigStore } from "./configStore";
 import { createLogger, maskSecret } from "./logger";
 import { buildApp } from "./server";
-import { configureLocalAgentStore } from "./cursor/localAgentStore";
 import { openBrowser } from "./utils/openBrowser";
 import { listenOnce, listenWithPortFallback } from "./utils/findAvailablePort";
 
@@ -27,7 +25,6 @@ async function main(): Promise<void> {
 
   const log = createLogger(config);
   const configStore = new ConfigStore(config, log);
-  configureLocalAgentStore(config, log);
 
   log.info(
     {

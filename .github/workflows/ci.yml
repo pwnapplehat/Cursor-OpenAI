@@ -12,7 +12,10 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        node-version: ["18.17.0", "20", "22"]
+        # 22.13.0 is the exact floor @cursor/sdk itself declares support for
+        # (its package.json requires engines.node ">=22.13"); 24 covers the
+        # next major so a future default runtime doesn't surprise us.
+        node-version: ["22.13.0", "24"]
     steps:
       - name: Checkout
         uses: actions/checkout@v4

@@ -23,7 +23,7 @@
   "type": "commonjs",
   "main": "dist/index.js",
   "engines": {
-    "node": ">=18.17.0"
+    "node": ">=22.13.0"
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",
