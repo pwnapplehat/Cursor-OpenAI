@@ -165,9 +165,9 @@
 </section>
 
 <!-- Dashboard -->
-<section data-view="dashboard" class="hidden min-h-screen lg:flex">
+<section data-view="dashboard" class="hidden dashboard-shell">
   <!-- Sidebar (desktop) -->
-  <aside class="hidden lg:flex lg:flex-col w-60 shrink-0 border-r border-border bg-surface/60 h-screen sticky top-0">
+  <aside class="app-sidebar flex-col w-60 shrink-0 border-r border-border bg-surface/60 h-screen sticky top-0">
     <div class="h-16 flex items-center gap-2.5 px-5 border-b border-border">
       <span class="inline-flex h-6 w-6 rounded-md bg-accent/15 items-center justify-center">
         <span class="inline-block h-2 w-2 rounded-full bg-accent animate-pulse"></span>
@@ -215,10 +215,15 @@
 
   <div class="flex-1 min-w-0">
     <!-- Top bar (mobile + tablet) -->
-    <header class="lg:hidden border-b border-border bg-surface/80 backdrop-blur sticky top-0 z-30">
+    <header class="app-topbar border-b border-border bg-surface/80 backdrop-blur sticky top-0 z-30">
       <div class="px-4 flex items-center justify-between h-14">
-        <div class="flex items-center gap-2 font-semibold text-sm text-white">
-          <span class="inline-block h-2 w-2 rounded-full bg-accent animate-pulse"></span> Cursor Gateway
+        <div class="flex items-center gap-3">
+          <button data-action="open-mobile-nav" class="btn-icon" type="button" title="Menu" aria-label="Open navigation menu">
+            <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M3.75 6.75h16.5M3.75 12h16.5M3.75 17.25h16.5"/></svg>
+          </button>
+          <div class="flex items-center gap-2 font-semibold text-sm text-white">
+            <span class="inline-block h-2 w-2 rounded-full bg-accent animate-pulse"></span> Cursor Gateway
+          </div>
         </div>
         <button data-action="logout" class="hidden text-sm text-slate-400 hover:text-white transition-colors" id="logout-btn-mobile">Sign out</button>
       </div>
@@ -682,6 +687,48 @@
       <div id="connect-snippets" class="space-y-6"></div>
     </div>
     </main>
+  </div>
+
+  <!-- Fallback mobile navigation drawer - reachable from the hamburger button in the topbar regardless of viewport width, independent of the CSS breakpoint above. -->
+  <div class="mobile-drawer-overlay" data-action="close-mobile-nav" id="mobile-drawer-overlay"></div>
+  <div class="mobile-drawer" id="mobile-drawer">
+    <div class="h-14 flex items-center justify-between px-4 border-b border-border">
+      <span class="font-semibold text-sm text-white tracking-tight">Cursor Gateway</span>
+      <button data-action="close-mobile-nav" class="btn-icon" type="button" aria-label="Close navigation menu">
+        <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12"/></svg>
+      </button>
+    </div>
+    <nav class="flex-1 px-3 py-4 space-y-0.5 overflow-y-auto" id="dashboard-nav-drawer">
+      <button data-tab="overview" class="nav-link">
+        <svg class="h-4 w-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg>
+        <span>Overview</span>
+      </button>
+      <button data-tab="activity" class="nav-link">
+        <svg class="h-4 w-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M13 2 3 14h7l-1 8 10-12h-7l1-8Z"/></svg>
+        <span>Activity</span>
+      </button>
+      <button data-tab="sessions" class="nav-link">
+        <svg class="h-4 w-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.86 9.86 0 0 1-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8Z"/></svg>
+        <span>Sessions</span>
+      </button>
+      <button data-tab="models" class="nav-link">
+        <svg class="h-4 w-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="m21 7.5-9-5.25L3 7.5m18 0-9 5.25m9-5.25v9l-9 5.25M3 7.5l9 5.25M3 7.5v9l9 5.25m0-9v9"/></svg>
+        <span>Models</span>
+      </button>
+      <button data-tab="chat" class="nav-link">
+        <svg class="h-4 w-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M8 10h8M8 14h5M21 12c0 4.97-4.03 9-9 9-1.5 0-2.9-.37-4.14-1.02L3 21l1.06-3.68A8.96 8.96 0 0 1 3 12c0-4.97 4.03-9 9-9s9 4.03 9 9Z"/></svg>
+        <span>Chat</span>
+      </button>
+      <button data-tab="connect" class="nav-link">
+        <svg class="h-4 w-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M13.19 8.688a4.5 4.5 0 0 1 1.242 7.244l-4.5 4.5a4.5 4.5 0 0 1-6.364-6.364l1.757-1.757M10.81 15.312a4.5 4.5 0 0 1-1.242-7.244l4.5-4.5a4.5 4.5 0 0 1 6.364 6.364l-1.757 1.757"/></svg>
+        <span>Connect</span>
+      </button>
+      <div class="h-px bg-border my-2.5 mx-1"></div>
+      <button data-tab="settings" class="nav-link">
+        <svg class="h-4 w-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 0 0 2.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 0 0 1.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 0 0-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 0 0-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 0 0-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 0 0-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 0 0 1.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065Z"/><circle cx="12" cy="12" r="3"/></svg>
+        <span>Settings</span>
+      </button>
+    </nav>
   </div>
 </section>
 

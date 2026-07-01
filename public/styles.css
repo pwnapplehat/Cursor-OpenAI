@@ -305,6 +305,81 @@ textarea.input-field {
 
 /* ---------------------------------------------------------------------- */
 /* App shell / navigation                                                  */
+/*                                                                          */
+/* The show/hide split between the desktop sidebar and the mobile top bar  */
+/* is hand-written here (plain @media queries), not left to Tailwind's     */
+/* CDN runtime JIT (`hidden lg:flex` and friends) - navigation disappearing */
+/* entirely because a third-party CDN script's runtime class generation     */
+/* didn't apply as expected is exactly the kind of failure that must never  */
+/* happen for the one thing that gets you anywhere else in the app. This   */
+/* stylesheet is served from this same origin and fully within our         */
+/* control, so the cascade behaves exactly as written, every time.         */
+/* ---------------------------------------------------------------------- */
+
+.dashboard-shell {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+}
+@media (min-width: 1024px) {
+  .dashboard-shell {
+    flex-direction: row;
+  }
+}
+
+.app-sidebar {
+  display: none;
+}
+.app-topbar {
+  display: block;
+}
+@media (min-width: 1024px) {
+  .app-sidebar {
+    display: flex;
+  }
+  .app-topbar {
+    display: none;
+  }
+}
+
+/* Fallback hamburger menu: a slide-out drawer for the same nav links,
+   reachable from the always-visible topbar button regardless of viewport
+   width - a second, independent way into navigation even if something
+   about the primary responsive layout above ever misbehaves again. */
+.mobile-drawer-overlay {
+  position: fixed;
+  inset: 0;
+  background-color: rgba(0, 0, 0, 0.6);
+  z-index: 40;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 160ms ease;
+}
+.mobile-drawer-overlay.open {
+  opacity: 1;
+  pointer-events: auto;
+}
+.mobile-drawer {
+  position: fixed;
+  top: 0;
+  left: 0;
+  bottom: 0;
+  width: 16rem;
+  max-width: 80vw;
+  background-color: var(--surface);
+  border-right: 1px solid var(--border);
+  z-index: 41;
+  transform: translateX(-100%);
+  transition: transform 200ms ease;
+  display: flex;
+  flex-direction: column;
+}
+.mobile-drawer.open {
+  transform: translateX(0);
+}
+
+/* ---------------------------------------------------------------------- */
+/* App shell / navigation (nav-link styling, shared by sidebar + drawer)   */
 /* ---------------------------------------------------------------------- */
 
 .nav-link {

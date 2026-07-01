@@ -367,7 +367,10 @@ function switchTab(name) {
 
 function initTabs() {
   document.querySelectorAll("[data-tab]").forEach((btn) => {
-    btn.addEventListener("click", () => switchTab(btn.dataset.tab));
+    btn.addEventListener("click", () => {
+      switchTab(btn.dataset.tab);
+      closeMobileNav();
+    });
   });
   document.querySelectorAll("[data-goto-tab]").forEach((btn) => {
     btn.addEventListener("click", () => switchTab(btn.dataset.gotoTab));
@@ -375,6 +378,35 @@ function initTabs() {
   document.addEventListener("visibilitychange", () => {
     if (document.hidden) stopPolling();
     else startPolling();
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Dashboard: fallback mobile navigation drawer (hamburger menu)
+//
+// Independent of the CSS breakpoint that switches between the desktop
+// sidebar and the mobile topbar - reachable at any viewport width, so
+// navigation is never fully inaccessible even if that responsive layout
+// ever misbehaves again.
+// ---------------------------------------------------------------------------
+
+function openMobileNav() {
+  document.getElementById("mobile-drawer").classList.add("open");
+  document.getElementById("mobile-drawer-overlay").classList.add("open");
+}
+
+function closeMobileNav() {
+  document.getElementById("mobile-drawer").classList.remove("open");
+  document.getElementById("mobile-drawer-overlay").classList.remove("open");
+}
+
+function initMobileNav() {
+  document.querySelector('[data-action="open-mobile-nav"]').addEventListener("click", openMobileNav);
+  document.querySelectorAll('[data-action="close-mobile-nav"]').forEach((el) => {
+    el.addEventListener("click", closeMobileNav);
+  });
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") closeMobileNav();
   });
 }
 
@@ -1237,14 +1269,41 @@ function initChatTabOnce() {
 // Dashboard: models
 // ---------------------------------------------------------------------------
 
+/** Cursor's `values[]` entries for boolean-style parameters (e.g. "thinking") often have no `displayName` at all, just the literal string "true"/"false" - show those as "On"/"Off" instead of leaking the raw wire value. */
+function formatParamValueLabel(value) {
+  if (value.displayName) return value.displayName;
+  if (value.value === "true") return "On";
+  if (value.value === "false") return "Off";
+  return value.value;
+}
+
+/**
+ * Renders each configurable *dimension* a model exposes (e.g. "Effort: Low,
+ * Medium, High" / "Context: 300K, 1M") from `model.parameters`.
+ *
+ * Deliberately NOT rendering `model.variants` (the pre-combined
+ * parameter-value tuples Cursor also returns): every variant's own
+ * `displayName` is just the model's own name repeated verbatim, with no
+ * per-variant label at all, and there can be dozens of them (one per
+ * combination) - listing them produced a card with "Opus 4.8" repeated 20+
+ * times and zero useful information, found by actually looking at a real
+ * rendered screenshot, not just checking the HTML contained the right
+ * elements. The `parameters` field is the actually human-readable summary
+ * of the same underlying knobs.
+ */
+function modelParametersHtml(model) {
+  const parameters = model.parameters || [];
+  if (parameters.length === 0) return "";
+  return parameters
+    .map((param) => {
+      const values = (param.values || []).map((v) => escapeHtml(formatParamValueLabel(v))).join(", ");
+      return `<div class="model-card-variant"><strong class="text-slate-300">${escapeHtml(param.displayName || param.id)}:</strong> ${values}</div>`;
+    })
+    .join("");
+}
+
 function modelCardHtml(model, isDefault) {
   const aliases = (model.aliases || []).map((a) => `<span class="pill">${escapeHtml(a)}</span>`).join(" ");
-  const variants = (model.variants || [])
-    .map(
-      (v) =>
-        `<div class="model-card-variant"><strong class="text-slate-300">${escapeHtml(v.displayName)}</strong>${v.isDefault ? ' <span class="pill">default</span>' : ""}${v.description ? ` &mdash; ${escapeHtml(v.description)}` : ""}</div>`,
-    )
-    .join("");
   return `<div class="model-card${isDefault ? " is-default" : ""}">
     <div class="flex items-start justify-between gap-3">
       <div class="min-w-0">
@@ -1255,7 +1314,7 @@ function modelCardHtml(model, isDefault) {
     </div>
     ${model.description ? `<p class="text-sm text-slate-400 mt-2">${escapeHtml(model.description)}</p>` : ""}
     ${aliases ? `<div class="flex flex-wrap gap-1.5 mt-3">${aliases}</div>` : ""}
-    ${variants}
+    ${modelParametersHtml(model)}
   </div>`;
 }
 
@@ -1478,6 +1537,7 @@ async function init() {
   initModelsTab();
   initLogout();
   initCopyTargets();
+  initMobileNav();
 
   try {
     const status = await apiPublic("/api/admin/status");
