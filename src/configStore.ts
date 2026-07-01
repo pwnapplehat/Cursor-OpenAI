@@ -11,8 +11,26 @@ export interface ConfigUpdateResult {
   restart: RestartRequirement;
 }
 
-/** Fields the admin API/UI is allowed to change. Deliberately excludes `cursorWorkdirRoot` and `nodeEnv` - changing an agent working-directory root or the runtime environment mid-process is not something this gateway attempts to support live. */
-const EDITABLE_STRING_FIELDS = ["cursorApiKey", "defaultModel", "corsOrigin", "host"] as const;
+/**
+ * Every top-level `AppConfig` field is editable via the admin API/UI/CLI -
+ * nothing is silently off-limits. `cursorWorkdirRoot` and `nodeEnv` used to
+ * be excluded on the theory that changing them "mid-process" wasn't
+ * supported; in practice `cursorWorkdirRoot` is read live off this same
+ * shared config object by `SessionManager` on every new session (so it
+ * already takes effect immediately, for new sessions, with no restart -
+ * existing cached sessions just keep the working directory they were
+ * created with), and `nodeEnv` is purely informational (nothing in this
+ * codebase branches on it). `authKey` gets its own validation block below
+ * since it has clear/generate semantics generate/clear don't share with a
+ * generic string field. Fields whose *effect* genuinely can't apply without
+ * restarting the process (e.g. `RATE_LIMIT_WINDOW_MS`, fixed by
+ * express-rate-limit at startup) are still fully settable here - they're
+ * just flagged to the caller/UI as needing a restart to take effect, and
+ * `ConfigStore.requestRestart()` (used by the dashboard/CLI's "Restart
+ * gateway" action) is how that's actually applied without a human needing
+ * shell access to the machine.
+ */
+const EDITABLE_STRING_FIELDS = ["cursorApiKey", "defaultModel", "corsOrigin", "host", "cursorWorkdirRoot", "nodeEnv"] as const;
 const EDITABLE_BOOL_FIELDS = [
   "includeThinking",
   "sessionsEnabled",
@@ -32,6 +50,10 @@ const EDITABLE_INT_FIELDS = [
   "port",
 ] as const;
 const EDITABLE_ENUM_FIELDS = ["cursorKeyMode", "cursorRuntime", "cursorAgentMode", "logLevel"] as const;
+/** Handled by their own dedicated validation blocks in `validate()`, not the generic string/bool/int loops - listed here purely so `isEditableField`/config-import treats them as recognized, editable fields. */
+const EDITABLE_SPECIAL_FIELDS = ["authKey"] as const;
+
+const MIN_AUTH_KEY_LENGTH = 16;
 
 /** Every top-level `AppConfig` field the admin API/UI is allowed to change - used by `ConfigStore.isEditableField` for config import to decide what to apply vs. silently ignore. */
 export const ALL_EDITABLE_CONFIG_FIELDS: readonly string[] = [
@@ -39,6 +61,7 @@ export const ALL_EDITABLE_CONFIG_FIELDS: readonly string[] = [
   ...EDITABLE_BOOL_FIELDS,
   ...EDITABLE_INT_FIELDS,
   ...EDITABLE_ENUM_FIELDS,
+  ...EDITABLE_SPECIAL_FIELDS,
 ];
 
 function maskSecretForApi(value: string | undefined): string | null {
@@ -67,6 +90,7 @@ export class ConfigStore {
   private readonly filePath: string;
   private readonly log: Logger;
   private onPortOrHostChange: ((port: number, host: string) => Promise<void>) | undefined;
+  private onRestartRequestedCallback: (() => void) | undefined;
 
   constructor(initial: AppConfig, log: Logger) {
     this.config = initial;
@@ -75,7 +99,12 @@ export class ConfigStore {
     // alongside it. Deriving the path this way (rather than a second
     // independent `process.cwd()`-based computation) means tests that give
     // `cursorWorkdirRoot` a temp directory automatically get an isolated,
-    // side-effect-free settings file for free.
+    // side-effect-free settings file for free. Fixed at construction time
+    // deliberately: `cursorWorkdirRoot` is itself editable live (see
+    // EDITABLE_STRING_FIELDS above), but settings.json's own location
+    // intentionally does not follow it around afterwards - it's simpler and
+    // more predictable for this one file to always live where the gateway
+    // was originally started from.
     this.filePath = path.join(path.dirname(initial.cursorWorkdirRoot), "settings.json");
     this.applyPersistedOverlay();
   }
@@ -91,11 +120,28 @@ export class ConfigStore {
     this.onPortOrHostChange = callback;
   }
 
+  /**
+   * Registers the callback that actually performs a full process restart
+   * (respawn), invoked by `requestRestart()`. Wired up once in `index.ts`,
+   * which owns the HTTP server/session manager this needs to shut down
+   * cleanly before handing off to the new process - `ConfigStore` itself
+   * has no business owning a server handle.
+   */
+  onRestartRequested(callback: () => void): void {
+    this.onRestartRequestedCallback = callback;
+  }
+
+  /** Triggers a full process restart (used for changes like `RATE_LIMIT_WINDOW_MS` that can't apply live) - see `onRestartRequested`. A no-op with a warning if nothing registered a handler (shouldn't happen outside of tests that construct a bare `ConfigStore`). */
+  requestRestart(): void {
+    if (this.onRestartRequestedCallback) this.onRestartRequestedCallback();
+    else this.log.warn("a restart was requested but no restart handler is registered");
+  }
+
   get setupComplete(): boolean {
     return isSetupComplete(this.config);
   }
 
-  /** Whether `field` is one `update()`/config-import will actually apply - everything else (`cursorWorkdirRoot`, `nodeEnv`, `authKey`, computed fields like `hasCursorApiKey`) is silently ignored rather than rejected, so re-importing a full config export never fails outright. */
+  /** Whether `field` is one `update()`/config-import will actually apply - everything else (computed/derived fields like `hasCursorApiKey`, `isSetupComplete`) is silently ignored rather than rejected, so re-importing a full config export never fails outright. */
   static isEditableField(field: string): boolean {
     return (ALL_EDITABLE_CONFIG_FIELDS as string[]).includes(field);
   }
@@ -165,6 +211,20 @@ export class ConfigStore {
   }
 
   private validate(input: Record<string, unknown>): Partial<AppConfig> {
+    // Reject unrecognized keys outright (e.g. a typo'd field name from the
+    // CLI, or a stale client sending a field this version doesn't know
+    // about) rather than silently no-op'ing them - a PATCH that "succeeds"
+    // without actually changing anything the caller asked for is worse than
+    // an error naming exactly what wasn't recognized. `/config/import`
+    // deliberately does NOT go through this: it pre-filters to only
+    // editable fields itself (via `isEditableField`) so a full config
+    // export - which legitimately contains read-only/computed fields too -
+    // can always be re-imported without failing outright.
+    const unrecognized = Object.keys(input).filter((key) => !ConfigStore.isEditableField(key));
+    if (unrecognized.length > 0) {
+      throw HttpError.badRequest(`Unrecognized config field(s): ${unrecognized.join(", ")}`, unrecognized[0]);
+    }
+
     const patch: Partial<AppConfig> = {};
 
     for (const field of EDITABLE_STRING_FIELDS) {
@@ -239,6 +299,35 @@ export class ConfigStore {
       } catch {
         throw HttpError.badRequest('"logLevel" is not a recognized log level', "logLevel");
       }
+    }
+
+    if ("authKey" in input) {
+      const value = input["authKey"];
+      if (value === null || value === "") {
+        patch.authKey = undefined;
+      } else if (typeof value === "string" && value.trim().length >= MIN_AUTH_KEY_LENGTH) {
+        patch.authKey = value.trim();
+      } else {
+        throw HttpError.badRequest(`"authKey" must be at least ${MIN_AUTH_KEY_LENGTH} characters, or null/empty to remove it`, "authKey");
+      }
+    }
+
+    if (patch.cursorWorkdirRoot !== undefined) {
+      // Resolved to an absolute path (relative paths would otherwise be
+      // ambiguous - relative to what, given the process's cwd may itself
+      // change across a restart) and eagerly created so a bad/unwritable
+      // path fails clearly right here, not silently later the first time a
+      // new session tries to use it.
+      const resolved = path.resolve(patch.cursorWorkdirRoot);
+      try {
+        fs.mkdirSync(resolved, { recursive: true });
+      } catch (err) {
+        throw HttpError.badRequest(
+          `"cursorWorkdirRoot" could not be created/accessed at "${resolved}" (${err instanceof Error ? err.message : "unknown error"})`,
+          "cursorWorkdirRoot",
+        );
+      }
+      patch.cursorWorkdirRoot = resolved;
     }
 
     if (patch.maxCachedAgents !== undefined && patch.maxCachedAgents < 1) {

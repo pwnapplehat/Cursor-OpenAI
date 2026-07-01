@@ -230,8 +230,8 @@ export function createAdminRouter(deps: GatewayDeps, configStore: ConfigStore): 
             ignored.push(key);
             continue;
           }
-          if (key === "cursorApiKey" && typeof value === "string" && /^\*{4,}/.test(value)) {
-            ignored.push(`${key} (looks like a masked placeholder, not a real key - skipped so it can't overwrite your actual key)`);
+          if ((key === "cursorApiKey" || key === "authKey") && typeof value === "string" && /^\*{4,}/.test(value)) {
+            ignored.push(`${key} (looks like a masked placeholder, not a real value - skipped so it can't overwrite the real one)`);
             continue;
           }
           patch[key] = value;
@@ -249,6 +249,19 @@ export function createAdminRouter(deps: GatewayDeps, configStore: ConfigStore): 
         next(err);
       }
     })();
+  });
+
+  /**
+   * Fully applies any pending "restart required" changes (e.g. a changed
+   * `RATE_LIMIT_WINDOW_MS`) by respawning the process, so nothing on this
+   * gateway ever requires a human with shell/console access to actually
+   * finish taking effect. Responds before the respawn happens (see
+   * `ConfigStore.requestRestart` / `index.ts`) so the caller reliably gets a
+   * clean response instead of a connection reset.
+   */
+  admin.post("/restart", (_req, res) => {
+    res.json({ ok: true, message: "Restarting - the gateway will be back within a few seconds." });
+    configStore.requestRestart();
   });
 
   admin.post("/regenerate-auth-key", (_req, res) => {

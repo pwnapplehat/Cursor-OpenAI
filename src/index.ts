@@ -1,3 +1,4 @@
+import { spawn } from "node:child_process";
 import { Cursor } from "@cursor/sdk";
 import { loadConfig, ConfigError } from "./config";
 import { ConfigStore } from "./configStore";
@@ -118,6 +119,40 @@ async function main(): Promise<void> {
       process.exit(1);
     }, 10_000).unref();
   };
+
+  configStore.onRestartRequested(() => {
+    if (shuttingDown) return;
+    shuttingDown = true;
+    log.info("restart requested via admin dashboard/CLI - respawning the process");
+    // A short delay so the HTTP response for the request that triggered
+    // this (POST /api/admin/restart) has actually flushed to the client
+    // before we start tearing anything down - otherwise that caller would
+    // see a connection reset instead of the "restarting" confirmation.
+    setTimeout(() => {
+      // `process.argv.slice(1)` reproduces exactly however this process was
+      // originally launched (`node dist/index.js`, `tsx watch src/index.ts`,
+      // etc.) - whatever it is, respawning it is correct, since it's just
+      // "run this same command again". `detached: true` + `unref()` lets the
+      // child outlive this process once it exits below, and `stdio:
+      // "inherit"` keeps its logs going to the same console/log file this
+      // process was using.
+      const child = spawn(process.execPath, process.argv.slice(1), {
+        detached: true,
+        stdio: "inherit",
+        cwd: process.cwd(),
+        env: process.env,
+      });
+      child.unref();
+      // Deliberately not awaiting server.close()'s drain callback (same
+      // reasoning as the port/host rebind above): the process is about to
+      // exit outright, which releases the listening socket immediately at
+      // the OS level - no need to wait for in-flight keep-alive connections
+      // to idle out first.
+      server.close();
+      sessionManager.shutdown();
+      process.exit(0);
+    }, 300);
+  });
 
   process.on("SIGINT", () => shutdown("SIGINT"));
   process.on("SIGTERM", () => shutdown("SIGTERM"));

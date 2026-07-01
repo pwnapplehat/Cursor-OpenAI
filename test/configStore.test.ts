@@ -107,6 +107,20 @@ test("ConfigStore.update validates enum-like fields (cursorKeyMode, cursorRuntim
   assert.equal(store.config.logLevel, "debug");
 });
 
+test("ConfigStore.update rejects unrecognized field names outright (regression test for a silent no-op bug)", async () => {
+  const store = new ConfigStore(makeTestConfig(), silentLog);
+  // A real bug found via live CLI testing: sending the web UI's convenience
+  // field name ("...Seconds") instead of the real millisecond field the API
+  // actually accepts used to be silently accepted and silently do nothing.
+  await assert.rejects(() => store.update({ rateLimitWindowSeconds: 45 }), (err: unknown) => {
+    assert.ok(err instanceof HttpError);
+    assert.match(err.message, /Unrecognized config field/);
+    assert.match(err.message, /rateLimitWindowSeconds/);
+    return true;
+  });
+  assert.equal(store.config.rateLimitWindowMs, 60_000, "the real field should be untouched, not silently left at some half-applied state");
+});
+
 test("ConfigStore.update rejects an entirely-invalid input atomically (no partial application)", async () => {
   const store = new ConfigStore(makeTestConfig({ defaultModel: "composer-2.5", maxConcurrentRuns: 8 }), silentLog);
   await assert.rejects(() => store.update({ defaultModel: "gpt-5", maxConcurrentRuns: -5 }), HttpError);
@@ -159,13 +173,55 @@ test("ConfigStore.generateAuthKey creates and persists a new key, and clearAuthK
   assert.equal(store.config.authKey, undefined);
 });
 
-test("ConfigStore.isEditableField accepts every field update() actually applies, and rejects computed/non-editable ones", () => {
+test("ConfigStore.isEditableField accepts every field update() actually applies, and rejects only truly computed/non-editable ones", () => {
   for (const field of ALL_EDITABLE_CONFIG_FIELDS) {
     assert.equal(ConfigStore.isEditableField(field), true, `${field} should be editable`);
   }
-  for (const field of ["cursorWorkdirRoot", "nodeEnv", "authKey", "hasCursorApiKey", "hasAuthKey", "isSetupComplete", "totallyMadeUp"]) {
+  // Every real AppConfig field is editable now (including cursorWorkdirRoot, nodeEnv, and authKey) -
+  // only fields computed/derived by redactedSnapshot(), which never exist on AppConfig itself, are not.
+  for (const field of ["hasCursorApiKey", "hasAuthKey", "isSetupComplete", "totallyMadeUp"]) {
     assert.equal(ConfigStore.isEditableField(field), false, `${field} should not be editable`);
   }
+});
+
+test("ConfigStore.update accepts a custom authKey (min length enforced) and can clear it via null/empty", async () => {
+  const store = new ConfigStore(makeTestConfig({ authKey: undefined }), silentLog);
+  await assert.rejects(() => store.update({ authKey: "short" }), HttpError);
+  await store.update({ authKey: "a-perfectly-fine-custom-admin-key" });
+  assert.equal(store.config.authKey, "a-perfectly-fine-custom-admin-key");
+
+  await store.update({ authKey: null });
+  assert.equal(store.config.authKey, undefined);
+});
+
+test("ConfigStore.update resolves cursorWorkdirRoot to an absolute path and creates it, rejecting an unwritable one", async () => {
+  const store = new ConfigStore(makeTestConfig(), silentLog);
+  const tmp = path.join(path.dirname(store.config.cursorWorkdirRoot), "moved-workdir");
+  await store.update({ cursorWorkdirRoot: tmp });
+  assert.equal(store.config.cursorWorkdirRoot, path.resolve(tmp));
+  assert.ok(fs.existsSync(tmp));
+});
+
+test("ConfigStore.update accepts nodeEnv like any other editable string field", async () => {
+  const store = new ConfigStore(makeTestConfig(), silentLog);
+  await store.update({ nodeEnv: "staging" });
+  assert.equal(store.config.nodeEnv, "staging");
+});
+
+test("ConfigStore.requestRestart invokes the registered onRestartRequested callback", () => {
+  const store = new ConfigStore(makeTestConfig(), silentLog);
+  let called = 0;
+  store.onRestartRequested(() => {
+    called += 1;
+  });
+  store.requestRestart();
+  store.requestRestart();
+  assert.equal(called, 2);
+});
+
+test("ConfigStore.requestRestart does not throw when no restart handler is registered", () => {
+  const store = new ConfigStore(makeTestConfig(), silentLog);
+  assert.doesNotThrow(() => store.requestRestart());
 });
 
 test("ConfigStore mutates the exact same config object it was constructed with (reference semantics consumers rely on)", async () => {

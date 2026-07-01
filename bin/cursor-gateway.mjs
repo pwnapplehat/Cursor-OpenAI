@@ -34,6 +34,7 @@ Commands:
   activity [--limit N]          Recent request activity + aggregate stats
   activity clear                Clear the in-memory activity log
   chat "<message>"              Send a message and print the reply (streams by default)
+  restart                       Respawn the gateway process (applies any "restart required" setting)
 
 Options (apply to any command):
   --url <baseUrl>       Gateway base URL (default: $GATEWAY_URL, else http://127.0.0.1:$PORT or :8787)
@@ -356,10 +357,23 @@ async function main() {
     return;
   }
 
+  if (command === "restart") {
+    const result = await apiRequest(baseUrl, adminKey, "POST", "/api/admin/restart");
+    if (asJson) return printJson(result);
+    process.stdout.write(`${result.message || "Restarting."}\n`);
+    return;
+  }
+
   fail(`Unknown command "${command}". Run with --help to see available commands.`);
 }
 
 main().catch((err) => {
   fail(err instanceof Error ? err.message : String(err));
-  process.exit(1);
+  // Deliberately NOT calling process.exit() here (fail() already sets
+  // process.exitCode, which is enough) - forcing an immediate exit right
+  // after a failed fetch() races with undici's own socket/handle cleanup
+  // and reliably crashes the process on Windows with a native libuv
+  // assertion (`UV_HANDLE_CLOSING`), found via actually running this CLI's
+  // error paths live, not by reasoning about the code. Letting the event
+  // loop drain naturally avoids the race entirely.
 });

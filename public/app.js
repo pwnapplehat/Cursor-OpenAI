@@ -331,6 +331,22 @@ function startPolling() {
   }
 }
 
+/** Polls `/health` until the gateway responds again after a restart (or times out). A brief initial delay + tolerance for fetch errors, since the old process is still closing and the new one still starting for the first moment or two. */
+async function waitForGatewayBackUp(timeoutMs = 20000, intervalMs = 700) {
+  await new Promise((resolve) => setTimeout(resolve, 800));
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    try {
+      const res = await fetch("/health", { cache: "no-store" });
+      if (res.ok) return true;
+    } catch {
+      // Expected while the old process is closing / the new one is still starting up.
+    }
+    await new Promise((resolve) => setTimeout(resolve, intervalMs));
+  }
+  return false;
+}
+
 function switchTab(name) {
   activeTab = name;
   document.querySelectorAll("[data-tab-panel]").forEach((panel) => {
@@ -718,6 +734,8 @@ function populateSettingsForms() {
   setField("logLevel", c.logLevel);
   setField("logPretty", c.logPretty, true);
   setField("defaultModel", c.defaultModel);
+  setField("cursorWorkdirRoot", c.cursorWorkdirRoot);
+  setField("nodeEnv", c.nodeEnv);
 
   settingsModelPicker.setSelected(c.defaultModel);
 }
@@ -754,8 +772,6 @@ async function renderSystemInfo() {
       Platform: `${system.platform} (${system.arch})`,
       "Process ID": system.pid,
       "Process uptime": formatUptime(system.processUptimeSeconds),
-      "Workdir root": state.config.cursorWorkdirRoot,
-      "Node env": state.config.nodeEnv,
     };
     container.innerHTML = Object.entries(rows)
       .map(([label, value]) => `<dt>${escapeHtml(label)}</dt><dd>${escapeHtml(value)}</dd>`)
@@ -858,8 +874,17 @@ function initSettingsForms() {
       corsOrigin: getField(forms.server, "corsOrigin").value.trim() || "*",
       autoOpenBrowser: getField(forms.server, "autoOpenBrowser").checked,
     }),
-    security: () => ({ adminAllowRemote: getField(forms.security, "adminAllowRemote").checked }),
+    security: () => {
+      const payload = { adminAllowRemote: getField(forms.security, "adminAllowRemote").checked };
+      const customKey = getField(forms.security, "authKeyCustom").value.trim();
+      if (customKey) payload.authKey = customKey;
+      return payload;
+    },
     logging: () => ({ logLevel: getField(forms.logging, "logLevel").value, logPretty: getField(forms.logging, "logPretty").checked }),
+    advanced: () => ({
+      cursorWorkdirRoot: getField(forms.advanced, "cursorWorkdirRoot").value.trim(),
+      nodeEnv: getField(forms.advanced, "nodeEnv").value.trim(),
+    }),
   };
 
   Object.entries(forms).forEach(([name, form]) => {
@@ -876,6 +901,12 @@ function initSettingsForms() {
         const updated = await api("/config", { method: "PATCH", body: JSON.stringify(payload) });
         state.config = updated;
         populateSettingsForms();
+        // These are "write-only" inputs (a new value to apply, not a
+        // reflection of current state) - clear them after every successful
+        // save regardless of which section submitted, since populateSettingsForms()
+        // has no persisted value to restore them from anyway.
+        setField("cursorApiKey", "");
+        setField("authKeyCustom", "");
         statusEl.textContent = "Saved";
         statusEl.classList.add("ok");
         toast("Settings saved.");
@@ -929,6 +960,30 @@ function initSettingsForms() {
 
   document.querySelector('[data-action="copy-revealed-key"]').addEventListener("click", () => {
     copyText(document.getElementById("revealed-key").textContent);
+  });
+
+  document.querySelector('[data-action="restart-gateway"]').addEventListener("click", async (event) => {
+    if (!confirm("Restart the gateway now? It should be back within a few seconds, and this page will reconnect automatically.")) return;
+    const button = event.currentTarget;
+    setBusy(button, true, "Restarting\u2026");
+    stopPolling();
+    try {
+      await api("/restart", { method: "POST" });
+      toast("Restarting the gateway\u2026");
+      const backUp = await waitForGatewayBackUp();
+      if (backUp) {
+        toast("Gateway is back online. Reloading\u2026");
+        setTimeout(() => location.reload(), 500);
+      } else {
+        toast("The gateway didn't come back within the expected time - check the server console.", "error");
+        setBusy(button, false);
+        startPolling();
+      }
+    } catch (err) {
+      toast(err.message, "error");
+      setBusy(button, false);
+      startPolling();
+    }
   });
 
   document.querySelector('[data-action="export-config"]').addEventListener("click", async (event) => {
