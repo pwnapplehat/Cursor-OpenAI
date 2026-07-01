@@ -8,7 +8,7 @@ OpenAI-compatible client            cursor-openai-gateway                 Cursor
 LiteLLM, Continue, curl...)         (this project)                       (your CURSOR_API_KEY)
 ```
 
-Comes with a built-in **web dashboard** (a setup wizard on first run, then live settings, a test-chat box, and ready-to-paste connection snippets) so you don't need to touch a config file, a terminal command, or a single line of code to use it - see [Admin dashboard](#admin-dashboard). Everything it does is also available headlessly via environment variables for Docker/CI/servers - see [Advanced: headless configuration](#advanced-headless-configuration).
+Comes with a built-in **web dashboard** (a setup wizard on first run, then a full sidebar-navigated control panel: live activity, session management, a model browser, a real streaming chat, and every setting there is) so you don't need to touch a config file, a terminal command, or a single line of code to use it - see [Admin dashboard](#admin-dashboard). Everything the dashboard does is *also* available from a real **command-line client** (`bin/cursor-gateway.mjs`) for scripting/automation - see [Command-line interface (CLI)](#command-line-interface-cli) - and headlessly via environment variables for Docker/CI/servers - see [Advanced: headless configuration](#advanced-headless-configuration). Three ways to drive the exact same gateway; use whichever fits the moment.
 
 Built directly against the real `@cursor/sdk` v1.0.x type definitions (not guesswork) and verified end-to-end against the live Cursor API - streaming, multi-turn sessions, OpenAI-style tool/function calling, and the dashboard's own setup/config API all actually work, not just on paper. See [Testing and verification](#testing-and-verification) for the real test transcripts.
 
@@ -17,6 +17,7 @@ Built directly against the real `@cursor/sdk` v1.0.x type definitions (not guess
 - [Quick start](#quick-start)
 - [Cross-platform support](#cross-platform-support)
 - [Admin dashboard](#admin-dashboard)
+- [Command-line interface (CLI)](#command-line-interface-cli)
 - [Features](#features)
 - [Advanced: headless configuration](#advanced-headless-configuration)
 - [Endpoints](#endpoints)
@@ -59,7 +60,7 @@ For local development with hot reload: `npm run dev` (tsx watch) instead of `npm
 This isn't a "should work" claim - Windows and Linux support were each specifically engineered for and verified with real, running instances (not just reasoning about the code), because early versions genuinely broke in platform-specific ways that reasoning alone did not catch. What was actually verified, and how:
 
 - **Windows** - developed on and continuously tested against throughout, including every endpoint, the admin dashboard, and all smoke-test suites.
-- **Linux** - verified with a real, fresh `git clone` of this repository run inside Ubuntu 24.04 (WSL2), on **Node 22.13.0 (this project's exact declared minimum) and Node 24**, exercising: `npm ci`/`typecheck`/`lint`/`build`/`test` (117/117 passing), a real chat completion, streaming, session continuity, the OpenAI tool-calling bridge round trip, the admin dashboard's static assets and API (including the Activity/Sessions endpoints and config export), and - critically - running the actual `start.sh` script from a clean checkout with no `node_modules`/`dist` present, exactly as a new user would.
+- **Linux** - verified with a real, fresh `git clone` of this repository run inside Ubuntu 24.04 (WSL2), on **Node 22.13.0 (this project's exact declared minimum) and Node 24**, exercising: `npm ci`/`typecheck`/`lint`/`build`/`test` (139/139 passing), a real chat completion, streaming, session continuity, the OpenAI tool-calling bridge round trip, the admin dashboard's static assets and API (including the Activity/Sessions endpoints and config export), and - critically - running the actual `start.sh` script from a clean checkout with no `node_modules`/`dist` present, exactly as a new user would. The CLI (`bin/cursor-gateway.mjs`) was separately re-verified end-to-end on real Node 22.13.0 on Linux too: `status`/`system`/`models`/streaming `chat` (including multi-turn via `--session`)/`config get`/`config set`/`sessions list`/`sessions clear` all exercised against a live instance, not just reasoned about.
 - **macOS** - not physically tested (no Mac was available), but every platform-specific code path is written and reasoned about the same way as the Linux one it shares a POSIX shell and Node.js runtime with: `start.sh` is plain POSIX-compatible bash verified against real bash on Linux, and `src/utils/openBrowser.ts` has a dedicated `darwin` branch (`open <url>`) parallel to the verified Linux (`xdg-open`) and Windows (`start`) branches. macOS is the one platform here where "should work" is an informed judgment rather than a demonstrated fact - please open an issue if something doesn't.
 
 Real, previously-invisible bugs this process found and fixed (each covered by a regression test so they can't silently come back):
@@ -71,15 +72,16 @@ Real, previously-invisible bugs this process found and fixed (each covered by a 
 
 ## Admin dashboard
 
-Opening the gateway in a browser (`http://localhost:8787` by default) gets you a full sidebar-navigated dashboard, not just a settings page:
+Opening the gateway in a browser (`http://localhost:8787` by default) gets you a full sidebar-navigated control panel, not just a settings page:
 
 - **First run: a 3-step setup wizard** - paste your Cursor API key (validated live against the real Cursor API before you can continue), pick a default model from your account's actual catalog with search/filter, and optionally generate a secure admin key to protect the dashboard and API. Takes under a minute.
 - **Overview** - live status (uptime, cached sessions, concurrency), your connected Cursor account, current default model, total requests/errors/tokens, a 24-hour requests chart, a per-model request breakdown, and a preview of the most recent activity.
 - **Activity** - a live, auto-refreshing table of every request this gateway process has actually handled (endpoint, model, status, streamed or not, duration, token usage), backed by an in-memory ring buffer (`src/observability/activityLog.ts`, last 200 requests - intentionally not persisted to disk, since it's an operations view, not an analytics warehouse). Clearable from the dashboard.
 - **Sessions** - every cached Cursor agent currently keeping a multi-turn conversation alive (type - explicit/auto/resume/fresh, agent id, model, message count, created/last-used times), with a one-click **Evict** per session or **Clear all**, backed by `SessionManager.listSessions()`/`evict()`/`evictAll()`. Evicting just means that conversation's next message starts a fresh agent - nothing else is affected.
-- **Settings** - every option in [Advanced: headless configuration](#advanced-headless-configuration), including agent conversation mode (agent/plan) and auto-open-browser-on-startup (both previously env-var-only, now editable from the dashboard too), editable from forms and applied **live, with no restart** - see [Live config reload](#live-config-reload-how) for how that actually works, including for the server's own port/host. Also includes a one-click **Backup → Download configuration** button that exports the full current config (including secrets, since it's for your own authenticated backup/restore) as JSON.
-- **Test chat** - send a real message through the gateway and see the reply right in the browser, no `curl`/code needed, to confirm everything works.
-- **Connect** - copy-paste-ready snippets (curl, Python, Node, LiteLLM, Continue.dev) for whatever you're hooking up, pre-filled with this gateway's actual base URL, key, and your chosen model.
+- **Models** - the full model catalog available to the configured Cursor account (not just a dropdown): name, description, aliases, and any variants (e.g. reasoning-effort presets) Cursor reports for that model, searchable, with a one-click "Set as default" per model.
+- **Chat** - a real, streaming conversation through the gateway (Markdown-rendered replies, live "typing" text, per-reply model/token/duration caption, copy-to-clipboard) - not a stub "test box". Each open chat tab gets its own private conversation (a random id kept in that tab's `sessionStorage`); **New conversation** starts a fresh one instantly. This is a genuine conversation through the same pipeline as `/v1/chat/completions`, useful for both trying things out and just using the gateway directly.
+- **Connect** - copy-paste-ready snippets (curl, Python, Node, LiteLLM, Continue.dev, and the CLI - see below) for whatever you're hooking up, pre-filled with this gateway's actual base URL, key, and your chosen model.
+- **Settings** - organized into sub-sections (General, Sessions & memory, Behavior & tools, Performance & limits, Network & server, Security, Logging, Backup & restore, System info) instead of one long scroll - every single option in [Advanced: headless configuration](#advanced-headless-configuration) is here, applied **live, with no restart** for almost all of them - see [Live config reload](#live-config-reload-how). **Backup & restore** covers both directions: download the full current config as JSON, or upload a previously exported file to restore it - unrecognized/non-editable fields (and anything that still looks like a *masked* key rather than a real one, e.g. from re-uploading a redacted export by mistake) are safely skipped and reported back, never silently corrupting your setup. **System info** is a read-only panel (gateway/Node version, platform, PID, workdir) for at-a-glance transparency into exactly what's running.
 
 Settings changed from the dashboard are saved to `.cursor-gateway/settings.json` (git-ignored, created automatically) and take precedence over `.env` on the next boot, so the two approaches don't fight each other - use whichever is convenient at the time.
 
@@ -90,6 +92,39 @@ Every setting change from the dashboard takes effect immediately on the running 
 ### Dashboard security
 
 The dashboard and its API (`/api/admin/*`) only accept requests from this machine (127.0.0.1/::1) by default, independent of whether you set an admin key - so exposing the OpenAI endpoints on your LAN (`HOST=0.0.0.0`) doesn't also expose configuration to that network. See [Security](#security) for the full picture, including the admin-key/loopback interaction and how secrets are masked.
+
+## Command-line interface (CLI)
+
+Everything the dashboard can do is also available as a real command-line client - `bin/cursor-gateway.mjs` - for scripting, automation, and headless/CI use. It's a standalone Node script (no build step of its own) that talks to a *running* gateway's admin API - the same one the dashboard uses - so it needs the gateway process to actually be up.
+
+```bash
+# From the project directory:
+node bin/cursor-gateway.mjs --help
+
+# Or run `npm link` once to get a global `cursor-gateway` command instead.
+npm link
+cursor-gateway --help
+```
+
+It auto-detects the gateway's URL (`http://127.0.0.1:<PORT>`, `PORT` from the environment, default `8787`) and, if run on the same machine, the admin key from the local `.cursor-gateway/settings.json` - so on a typical local setup you don't need to pass either explicitly. Override with `--url`/`--key` (or `GATEWAY_URL`/`GATEWAY_ADMIN_KEY` env vars) for a remote instance.
+
+```bash
+cursor-gateway status                                          # health + account at a glance
+cursor-gateway system                                           # gateway/Node version, platform, workdir
+cursor-gateway config get                                       # full current config
+cursor-gateway config get defaultModel                          # one field
+cursor-gateway config set defaultModel=composer-2.5 maxConcurrentRuns=16   # update settings (typed: numbers/booleans auto-detected)
+cursor-gateway config export my-backup.json                     # back up the full config
+cursor-gateway config import my-backup.json                     # restore it later (masked/unknown fields are safely skipped)
+cursor-gateway models                                           # full catalog for the configured account
+cursor-gateway sessions list                                    # cached multi-turn conversations
+cursor-gateway sessions evict <id>                               # evict one
+cursor-gateway sessions clear                                    # evict all
+cursor-gateway activity --limit 20                               # recent request activity + aggregate stats
+cursor-gateway chat "Say hello in one word" --model composer-2.5 # streams the reply to stdout
+```
+
+Every command also accepts `--json` for machine-readable output instead of a formatted table - handy for scripting (`cursor-gateway config get --json | jq .defaultModel`). `config set` coerces `key=value` pairs to the right type automatically (`sessionsEnabled=false`, `port=9000`, `defaultModel=auto`) and rejects anything the server itself would reject, with the same validation `ConfigStore` already applies to the dashboard - there's exactly one source of truth for what a valid config looks like, not two.
 
 ## Features
 
@@ -276,6 +311,7 @@ This project's behavior was verified live, not just type-checked, and that proce
 - Explicit `session_id`s were only *incorrectly* appearing to work via a full-history-replay fallback that masked a re-keying bug. Fixed and covered by `test/sessionManager.test.ts`.
 - The first implementation of live port/host reconfiguration (`PATCH /api/admin/config`) deadlocked: it awaited the old HTTP server fully draining before responding, but the very request making that change was itself being served by the old server and couldn't finish until the handler returned - a live test hung indefinitely instead of completing. Fixed by not awaiting the drain (see the comment in `src/index.ts`) and covered by `test/serverRebind.test.ts`, which binds a real server and asserts the triggering request resolves within a timeout instead of hanging.
 - Two genuine, previously-invisible cross-platform bugs (a completely broken `npm test` on Linux, and a non-executable `start.sh` in git) - see [Cross-platform support](#cross-platform-support) for the full account of each, and `test/findAvailablePort.test.ts` for the port-fallback logic's own regression tests.
+- The CLI's `config import` rejected its own exported files outright when they'd been re-saved by a common Windows tool (Notepad, PowerShell's `Out-File`) in between, because those tools prepend a UTF-8 BOM (`\uFEFF`) that `JSON.parse` doesn't tolerate - caught by actually round-tripping a file through PowerShell during live testing, not by reasoning about the code. Fixed (`stripBom()` in `bin/cli-lib.mjs`, applied on both the CLI and the dashboard's own file-upload import path) and covered by `test/cliLib.test.ts`.
 
 Each of these is also described in a code comment at the exact call site that caused it, so they don't get silently reintroduced.
 
@@ -326,11 +362,14 @@ src/
     responseTranslator.ts    RunOutcome -> OpenAI response / SSE chunks
     usage.ts                 Cursor TokenUsage -> OpenAI usage
   observability/activityLog.ts  in-memory ring buffer + aggregate stats (requests, errors, tokens, per-model, hourly) for the dashboard
-  gateway/orchestrator.ts    ties the above together for both chat + legacy completions routes AND the admin test-chat endpoint; records every outcome to the activity log
-  routes/                   Express route handlers, including admin.ts (setup wizard + full dashboard API: config, activity, sessions, export)
+  gateway/orchestrator.ts    ties the above together for both chat + legacy completions routes AND the admin test-chat endpoints (streaming + non-streaming); records every outcome to the activity log
+  routes/                   Express route handlers, including admin.ts (setup wizard + full dashboard/CLI API: config get/set/export/import, system info, activity, sessions, streaming + non-streaming chat)
   middleware/                auth (constant-time compare), admin loopback restriction, rate limiting, request id, error handling
-  utils/                     ids, SSE writer, hashing/diffing, concurrency primitives, token estimate, safe compare, browser launcher, port fallback
-public/                     the admin dashboard itself - sidebar-navigated Overview/Activity/Sessions/Settings/Test chat/Connect, static HTML/CSS/vanilla JS + Chart.js (CDN), no build step, no framework
+  utils/                     ids, SSE writer, hashing/diffing, concurrency primitives, token estimate, safe compare, browser launcher, port fallback, package version lookup
+public/                     the admin dashboard itself - sidebar-navigated Overview/Activity/Sessions/Models/Chat/Connect/Settings, static HTML/CSS/vanilla JS + Chart.js/marked/DOMPurify (CDN), no build step, no framework
+bin/
+  cursor-gateway.mjs         the CLI entrypoint - see Command-line interface (CLI) above
+  cli-lib.mjs                pure argument-parsing/value-coercion helpers the CLI uses, unit-tested independently of any network call
 test/                       unit tests (Cursor SDK calls mocked, no network) + one real-server integration test (serverRebind.test.ts)
 scripts/
   run-tests.mjs             portable, shell/Node-version-independent *.test.ts file discovery for `npm test` (see Cross-platform support)

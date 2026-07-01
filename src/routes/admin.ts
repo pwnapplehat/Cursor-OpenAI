@@ -1,12 +1,14 @@
 import { Router, type NextFunction, type Request, type Response } from "express";
 import { Cursor } from "@cursor/sdk";
-import { HttpError } from "../errors";
+import { HttpError, mapErrorToResponse } from "../errors";
 import { safeCompare } from "../utils/safeCompare";
 import type { GatewayDeps } from "../gateway/orchestrator";
 import { executeGatewayTurn, prepareGatewayTurn, rememberGatewayTurn } from "../gateway/orchestrator";
-import type { ConfigStore } from "../configStore";
+import { ConfigStore } from "../configStore";
 import type { ChatCompletionMessage } from "../types/openai";
 import type { RunOutcome } from "../cursor/runController";
+import { getGatewayVersion } from "../utils/version";
+import { SseWriter } from "../utils/sse";
 
 function extractBearer(req: Request): string | undefined {
   const header = req.header("authorization");
@@ -154,6 +156,17 @@ export function createAdminRouter(deps: GatewayDeps, configStore: ConfigStore): 
     res.json(configStore.redactedSnapshot());
   });
 
+  admin.get("/system", (_req, res) => {
+    res.json({
+      gatewayVersion: getGatewayVersion(),
+      nodeVersion: process.version,
+      platform: process.platform,
+      arch: process.arch,
+      pid: process.pid,
+      processUptimeSeconds: Math.floor(process.uptime()),
+    });
+  });
+
   admin.get("/account", (_req, res, next) => {
     void (async () => {
       try {
@@ -183,6 +196,55 @@ export function createAdminRouter(deps: GatewayDeps, configStore: ConfigStore): 
       try {
         const result = await configStore.update((req.body ?? {}) as Record<string, unknown>);
         res.json({ ...configStore.redactedSnapshot(), restartRequired: result.restart !== "none" });
+      } catch (err) {
+        next(err);
+      }
+    })();
+  });
+
+  /**
+   * Restores settings from a previously exported/downloaded config file (or
+   * any partial JSON object of the same shape). Never rejects the whole
+   * import over unrecognized/non-editable keys (`cursorWorkdirRoot`,
+   * `nodeEnv`, computed fields like `hasCursorApiKey`, etc.) - those are just
+   * silently reported back as "ignored" so a full round-trip export -> import
+   * always works. A `cursorApiKey` that still looks like a masked value
+   * (`"***...1234"`, e.g. from re-importing a *redacted* `/config` response
+   * instead of a real `/config/export`) is deliberately skipped too, so it
+   * can never clobber the real key with garbage.
+   */
+  admin.post("/config/import", (req, res, next) => {
+    void (async () => {
+      try {
+        const body = (req.body ?? {}) as Record<string, unknown>;
+        if (typeof body !== "object" || body === null || Array.isArray(body)) {
+          throw HttpError.badRequest("Import body must be a JSON object.");
+        }
+
+        const patch: Record<string, unknown> = {};
+        const applied: string[] = [];
+        const ignored: string[] = [];
+
+        for (const [key, value] of Object.entries(body)) {
+          if (!ConfigStore.isEditableField(key)) {
+            ignored.push(key);
+            continue;
+          }
+          if (key === "cursorApiKey" && typeof value === "string" && /^\*{4,}/.test(value)) {
+            ignored.push(`${key} (looks like a masked placeholder, not a real key - skipped so it can't overwrite your actual key)`);
+            continue;
+          }
+          patch[key] = value;
+          applied.push(key);
+        }
+
+        if (Object.keys(patch).length === 0) {
+          res.json({ applied, ignored, restartRequired: false, config: configStore.redactedSnapshot() });
+          return;
+        }
+
+        const result = await configStore.update(patch);
+        res.json({ applied, ignored, restartRequired: result.restart !== "none", config: configStore.redactedSnapshot() });
       } catch (err) {
         next(err);
       }
@@ -250,6 +312,24 @@ export function createAdminRouter(deps: GatewayDeps, configStore: ConfigStore): 
     })();
   });
 
+  /**
+   * Shared body parsing for both test-chat endpoints below. `sessionId` is
+   * caller-supplied (the dashboard generates one per open chat, unique per
+   * browser tab; the CLI can pass `--session <id>` for multi-turn, or omit it
+   * for a one-off stateless message) - deliberately NOT a hardcoded shared
+   * id, which used to mean every dashboard user/tab silently shared the same
+   * underlying Cursor conversation.
+   */
+  function extractChatBody(req: Request, defaultModel: string): { message: string; model: string; sessionId: string | undefined } {
+    const body = req.body as { message?: unknown; model?: unknown; sessionId?: unknown };
+    if (typeof body.message !== "string" || body.message.trim().length === 0) {
+      throw HttpError.badRequest('"message" is required', "message");
+    }
+    const model = typeof body.model === "string" && body.model.trim().length > 0 ? body.model.trim() : defaultModel;
+    const sessionId = typeof body.sessionId === "string" && body.sessionId.trim().length > 0 ? body.sessionId.trim() : undefined;
+    return { message: body.message, model, sessionId };
+  }
+
   admin.post("/test-chat", (req, res, next) => {
     void (async () => {
       try {
@@ -259,20 +339,16 @@ export function createAdminRouter(deps: GatewayDeps, configStore: ConfigStore): 
             "Test chat needs a server-side Cursor API key. This gateway is in passthrough mode, so there is no key to test with here.",
           );
         }
-        const body = req.body as { message?: unknown; model?: unknown };
-        if (typeof body.message !== "string" || body.message.trim().length === 0) {
-          throw HttpError.badRequest('"message" is required', "message");
-        }
-        const requestedModelId = typeof body.model === "string" && body.model.trim().length > 0 ? body.model.trim() : config.defaultModel;
-        const rawMessages: ChatCompletionMessage[] = [{ role: "user", content: body.message }];
+        const { message, model, sessionId } = extractChatBody(req, config.defaultModel);
+        const rawMessages: ChatCompletionMessage[] = [{ role: "user", content: message }];
 
         const prepared = await prepareGatewayTurn(deps, {
           apiKey: config.cursorApiKey,
           endpoint: "/api/admin/test-chat",
-          requestedModelId,
+          requestedModelId: model,
           rawMessages,
           tools: undefined,
-          metadata: { session_id: "admin-dashboard-test-chat" },
+          metadata: sessionId ? { session_id: sessionId } : undefined,
           requestId: req.requestId,
         });
 
@@ -290,9 +366,73 @@ export function createAdminRouter(deps: GatewayDeps, configStore: ConfigStore): 
         res.json({
           content: outcome.content,
           reasoningContent: outcome.reasoningContent,
-          model: outcome.model?.id ?? requestedModelId,
+          model: outcome.model?.id ?? model,
           usage: outcome.usage,
+          agentId: outcome.agentId,
         });
+      } catch (err) {
+        next(err);
+      }
+    })();
+  });
+
+  /** Streaming (SSE) sibling of `/test-chat`, powering the dashboard's live-typing chat UI. Frame shapes: `{type:"text"|"reasoning", delta}`, `{type:"done", model, usage, agentId, finishReason}`, `{type:"error", message}`. */
+  admin.post("/test-chat/stream", (req, res, next) => {
+    void (async () => {
+      try {
+        const { config } = deps;
+        if (!config.cursorApiKey) {
+          throw HttpError.badRequest(
+            "Test chat needs a server-side Cursor API key. This gateway is in passthrough mode, so there is no key to test with here.",
+          );
+        }
+        const { message, model, sessionId } = extractChatBody(req, config.defaultModel);
+        const rawMessages: ChatCompletionMessage[] = [{ role: "user", content: message }];
+
+        const prepared = await prepareGatewayTurn(deps, {
+          apiKey: config.cursorApiKey,
+          endpoint: "/api/admin/test-chat",
+          requestedModelId: model,
+          rawMessages,
+          tools: undefined,
+          metadata: sessionId ? { session_id: sessionId } : undefined,
+          requestId: req.requestId,
+        });
+
+        const abortController = new AbortController();
+        req.on("close", () => {
+          if (!res.writableEnded) abortController.abort();
+        });
+
+        const sse = new SseWriter(res);
+        try {
+          const outcome = await executeGatewayTurn(deps, prepared, {
+            abortSignal: abortController.signal,
+            streaming: true,
+            sink: {
+              onTextDelta: (delta) => sse.send({ type: "text", delta }),
+              onReasoningDelta: (delta) => sse.send({ type: "reasoning", delta }),
+            },
+          });
+
+          if (outcome.finishReason !== "cancelled") {
+            rememberGatewayTurn(deps, prepared, outcome);
+          }
+
+          if (!sse.isClosed) {
+            sse.send({ type: "done", model: outcome.model?.id ?? model, usage: outcome.usage, agentId: outcome.agentId, finishReason: outcome.finishReason });
+            sse.done();
+          }
+        } catch (err) {
+          prepared.log.error({ err }, "streaming admin test-chat failed mid-run");
+          if (!sse.isClosed) {
+            const mapped = mapErrorToResponse(err);
+            sse.send({ type: "error", message: mapped.body.error.message });
+            sse.done();
+          }
+        } finally {
+          prepared.releaseSemaphore();
+        }
       } catch (err) {
         next(err);
       }

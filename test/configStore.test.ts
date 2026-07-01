@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 import pino from "pino";
-import { ConfigStore } from "../src/configStore";
+import { ALL_EDITABLE_CONFIG_FIELDS, ConfigStore } from "../src/configStore";
 import { HttpError } from "../src/errors";
 import { makeTestConfig } from "./helpers/testConfig";
 
@@ -157,6 +157,15 @@ test("ConfigStore.generateAuthKey creates and persists a new key, and clearAuthK
 
   store.clearAuthKey();
   assert.equal(store.config.authKey, undefined);
+});
+
+test("ConfigStore.isEditableField accepts every field update() actually applies, and rejects computed/non-editable ones", () => {
+  for (const field of ALL_EDITABLE_CONFIG_FIELDS) {
+    assert.equal(ConfigStore.isEditableField(field), true, `${field} should be editable`);
+  }
+  for (const field of ["cursorWorkdirRoot", "nodeEnv", "authKey", "hasCursorApiKey", "hasAuthKey", "isSetupComplete", "totallyMadeUp"]) {
+    assert.equal(ConfigStore.isEditableField(field), false, `${field} should not be editable`);
+  }
 });
 
 test("ConfigStore mutates the exact same config object it was constructed with (reference semantics consumers rely on)", async () => {

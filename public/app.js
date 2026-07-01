@@ -343,6 +343,9 @@ function switchTab(name) {
   else if (name === "overview") void renderOverview();
   else if (name === "activity") void renderActivityTab();
   else if (name === "sessions") void renderSessionsTab();
+  else if (name === "models") void renderModelsTab();
+  else if (name === "settings") void renderSystemInfo();
+  else if (name === "chat") initChatTabOnce();
   startPolling();
 }
 
@@ -719,6 +722,106 @@ function populateSettingsForms() {
   settingsModelPicker.setSelected(c.defaultModel);
 }
 
+// ---------------------------------------------------------------------------
+// Dashboard: settings sub-navigation (General/Sessions/.../System info)
+// ---------------------------------------------------------------------------
+
+function switchSettingsSection(name) {
+  document.querySelectorAll("[data-settings-panel]").forEach((panel) => {
+    panel.classList.toggle("hidden", panel.dataset.settingsPanel !== name);
+  });
+  document.querySelectorAll("[data-settings-section]").forEach((btn) => {
+    btn.classList.toggle("active", btn.dataset.settingsSection === name);
+  });
+  if (name === "system") void renderSystemInfo();
+}
+
+function initSettingsSubnav() {
+  document.querySelectorAll("[data-settings-section]").forEach((btn) => {
+    btn.addEventListener("click", () => switchSettingsSection(btn.dataset.settingsSection));
+  });
+  switchSettingsSection("general");
+}
+
+async function renderSystemInfo() {
+  const container = document.getElementById("system-info-table");
+  if (!container || container.dataset.loaded) return;
+  try {
+    const system = await api("/system");
+    const rows = {
+      "Gateway version": system.gatewayVersion,
+      "Node.js version": system.nodeVersion,
+      Platform: `${system.platform} (${system.arch})`,
+      "Process ID": system.pid,
+      "Process uptime": formatUptime(system.processUptimeSeconds),
+      "Workdir root": state.config.cursorWorkdirRoot,
+      "Node env": state.config.nodeEnv,
+    };
+    container.innerHTML = Object.entries(rows)
+      .map(([label, value]) => `<dt>${escapeHtml(label)}</dt><dd>${escapeHtml(value)}</dd>`)
+      .join("");
+    container.dataset.loaded = "1";
+  } catch (err) {
+    container.innerHTML = `<dd class="text-danger col-span-2">${escapeHtml(err.message)}</dd>`;
+  }
+}
+
+function initConfigImport() {
+  const fileInput = document.getElementById("import-config-file");
+  const filenameEl = document.getElementById("import-config-filename");
+  const applyBtn = document.querySelector('[data-action="import-config"]');
+  const statusEl = document.getElementById("import-config-status");
+  const resultEl = document.getElementById("import-config-result");
+  let selectedFile = null;
+
+  fileInput.addEventListener("change", () => {
+    selectedFile = fileInput.files && fileInput.files[0] ? fileInput.files[0] : null;
+    filenameEl.textContent = selectedFile ? selectedFile.name : "Click to choose a configuration JSON file\u2026";
+    applyBtn.disabled = !selectedFile;
+    statusEl.textContent = "";
+    statusEl.className = "save-status";
+    resultEl.classList.add("hidden");
+  });
+
+  applyBtn.addEventListener("click", async () => {
+    if (!selectedFile) return;
+    setBusy(applyBtn, true, "Applying\u2026");
+    statusEl.textContent = "";
+    statusEl.className = "save-status";
+    resultEl.classList.add("hidden");
+    try {
+      // Strip a leading UTF-8 BOM (U+FEFF) - common in files re-saved by
+      // Windows tools (Notepad, PowerShell), which JSON.parse rejects outright.
+      const text = (await selectedFile.text()).replace(/^\uFEFF/, "");
+      let parsed;
+      try {
+        parsed = JSON.parse(text);
+      } catch {
+        throw new Error("That file is not valid JSON.");
+      }
+      const result = await api("/config/import", { method: "POST", body: JSON.stringify(parsed) });
+      state.config = result.config;
+      populateSettingsForms();
+      const lines = [];
+      if (result.applied.length > 0) lines.push(`<p><strong class="text-accent">Applied:</strong> ${escapeHtml(result.applied.join(", "))}</p>`);
+      if (result.ignored.length > 0) lines.push(`<p class="mt-1"><strong class="text-slate-400">Ignored:</strong> ${escapeHtml(result.ignored.join(", "))}</p>`);
+      resultEl.innerHTML = lines.join("") || "<p>Nothing to apply.</p>";
+      resultEl.classList.remove("hidden");
+      statusEl.textContent = "Applied";
+      statusEl.classList.add("ok");
+      toast("Configuration imported.");
+    } catch (err) {
+      resultEl.innerHTML = `<p class="text-danger">${escapeHtml(err.message)}</p>`;
+      resultEl.classList.remove("hidden");
+      statusEl.textContent = "Failed";
+      statusEl.classList.add("error");
+      toast(err.message, "error");
+    } finally {
+      setBusy(applyBtn, false);
+    }
+  });
+}
+
 function initSettingsForms() {
   const forms = {};
   document.querySelectorAll("[data-settings-form]").forEach((form) => {
@@ -726,12 +829,13 @@ function initSettingsForms() {
   });
 
   const sections = {
-    account: () => ({
-      cursorKeyMode: getField(forms.account, "cursorKeyMode").value,
-      cursorRuntime: getField(forms.account, "cursorRuntime").value,
-      ...(getField(forms.account, "cursorApiKey").value.trim() ? { cursorApiKey: getField(forms.account, "cursorApiKey").value.trim() } : {}),
+    general: () => ({
+      cursorKeyMode: getField(forms.general, "cursorKeyMode").value,
+      cursorRuntime: getField(forms.general, "cursorRuntime").value,
+      cursorAgentMode: getField(forms.general, "cursorAgentMode").value,
+      defaultModel: getField(forms.general, "defaultModel").value,
+      ...(getField(forms.general, "cursorApiKey").value.trim() ? { cursorApiKey: getField(forms.general, "cursorApiKey").value.trim() } : {}),
     }),
-    model: () => ({ defaultModel: getField(forms.model, "defaultModel").value }),
     sessions: () => ({
       sessionsEnabled: getField(forms.sessions, "sessionsEnabled").checked,
       autoSessionEnabled: getField(forms.sessions, "autoSessionEnabled").checked,
@@ -739,7 +843,6 @@ function initSettingsForms() {
       maxCachedAgents: Number(getField(forms.sessions, "maxCachedAgents").value),
     }),
     behavior: () => ({
-      cursorAgentMode: getField(forms.behavior, "cursorAgentMode").value,
       includeThinking: getField(forms.behavior, "includeThinking").checked,
       toolBridgeEnabled: getField(forms.behavior, "toolBridgeEnabled").checked,
     }),
@@ -855,57 +958,295 @@ function initSettingsForms() {
 }
 
 // ---------------------------------------------------------------------------
-// Dashboard: test chat
+// Dashboard: chat
+//
+// Each browser tab gets its own conversation: a random session id is
+// generated once and kept in sessionStorage (not localStorage - deliberately
+// scoped per-tab, not shared across every tab/device using this dashboard,
+// which is what a single hardcoded shared session id used to do). "New
+// conversation" simply mints a fresh id; the old server-side session is left
+// to expire via the normal session TTL sweep (or can be evicted manually
+// from the Sessions tab) rather than needing a dedicated eviction path here.
 // ---------------------------------------------------------------------------
 
-function appendChatBubble(role, text) {
-  const list = document.getElementById("test-chat-messages");
-  const row = document.createElement("div");
-  row.className = "chat-row";
+const CHAT_SESSION_STORAGE_KEY = "cursor-gateway-chat-session-id";
+let chatSessionId = sessionStorage.getItem(CHAT_SESSION_STORAGE_KEY) || "";
+let chatInitialized = false;
+let chatInFlight = false;
+
+function newChatSessionId() {
+  const id = `dashboard-${(crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`).slice(0, 18)}`;
+  sessionStorage.setItem(CHAT_SESSION_STORAGE_KEY, id);
+  return id;
+}
+
+function renderMarkdown(text) {
+  if (typeof marked === "undefined" || typeof DOMPurify === "undefined") return escapeHtml(text).replace(/\n/g, "<br>");
+  return DOMPurify.sanitize(marked.parse(text, { breaks: true }));
+}
+
+function chatMessagesEl() {
+  return document.getElementById("chat-messages");
+}
+
+function clearChatEmptyState() {
+  const list = chatMessagesEl();
+  const empty = list.querySelector(".empty-state");
+  if (empty) empty.remove();
+}
+
+function appendChatGroup(role) {
+  clearChatEmptyState();
+  const list = chatMessagesEl();
+  const group = document.createElement("div");
+  group.className = `chat-bubble-group ${role}`;
+
   const bubble = document.createElement("div");
   bubble.className = `chat-bubble ${role}`;
-  bubble.textContent = text;
-  row.appendChild(bubble);
-  list.appendChild(row);
+  group.appendChild(bubble);
+
+  const meta = document.createElement("div");
+  meta.className = "chat-meta hidden";
+  group.appendChild(meta);
+
+  list.appendChild(group);
   list.scrollTop = list.scrollHeight;
-  return bubble;
+  return { group, bubble, meta };
 }
 
-function appendReasoningBubble(text) {
-  const list = document.getElementById("test-chat-messages");
-  const row = document.createElement("div");
-  row.className = "chat-row";
-  const bubble = document.createElement("div");
-  bubble.className = "chat-bubble reasoning";
-  bubble.textContent = text;
-  row.appendChild(bubble);
-  list.appendChild(row);
-  list.scrollTop = list.scrollHeight;
+function addMessageActions(group, getText) {
+  const actions = document.createElement("div");
+  actions.className = "chat-actions";
+  const copyBtn = document.createElement("button");
+  copyBtn.className = "btn-icon";
+  copyBtn.type = "button";
+  copyBtn.title = "Copy";
+  copyBtn.style.height = "1.75rem";
+  copyBtn.style.width = "1.75rem";
+  copyBtn.innerHTML =
+    '<svg class="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 012-2h10"/></svg>';
+  copyBtn.addEventListener("click", () => copyText(getText()));
+  actions.appendChild(copyBtn);
+  group.appendChild(actions);
 }
 
-function initTestChat() {
-  document.querySelector('[data-action="test-chat-form"]').addEventListener("submit", async (event) => {
-    event.preventDefault();
-    const input = document.getElementById("test-chat-input");
-    const message = input.value.trim();
-    if (!message) return;
-    appendChatBubble("user", message);
-    input.value = "";
-    input.disabled = true;
-    const thinkingBubble = appendChatBubble("assistant", "Thinking\u2026");
-    try {
-      const result = await api("/test-chat", { method: "POST", body: JSON.stringify({ message }) });
-      thinkingBubble.parentElement.remove();
-      if (result.reasoningContent) appendReasoningBubble(result.reasoningContent);
-      appendChatBubble("assistant", result.content || "(empty response)");
-    } catch (err) {
-      thinkingBubble.textContent = `Error: ${err.message}`;
-      thinkingBubble.parentElement.classList.add("text-danger");
-    } finally {
-      input.disabled = false;
-      input.focus();
+async function submitChatMessage(message) {
+  if (chatInFlight) return;
+  chatInFlight = true;
+  const input = document.getElementById("chat-input");
+  const sendBtn = document.getElementById("chat-send-btn");
+  const modelSelect = document.getElementById("chat-model-select");
+  input.disabled = true;
+  sendBtn.disabled = true;
+
+  const userGroup = appendChatGroup("user");
+  userGroup.bubble.textContent = message;
+  addMessageActions(userGroup.group, () => message);
+
+  const assistantGroup = appendChatGroup("assistant");
+  assistantGroup.bubble.innerHTML = '<span class="streaming-cursor"></span>';
+  let accumulated = "";
+  let reasoning = "";
+
+  try {
+    const headers = { "Content-Type": "application/json" };
+    if (state.adminKey) headers["Authorization"] = `Bearer ${state.adminKey}`;
+    const res = await fetch("/api/admin/test-chat/stream", {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ message, model: modelSelect.value || undefined, sessionId: chatSessionId }),
+    });
+    if (!res.ok || !res.body) {
+      let body = null;
+      try {
+        body = await res.json();
+      } catch {
+        // ignore
+      }
+      throw new Error((body && body.error && body.error.message) || `Request failed (${res.status})`);
+    }
+
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buffered = "";
+    let finalFrame = null;
+
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffered += decoder.decode(value, { stream: true });
+      const parts = buffered.split("\n\n");
+      buffered = parts.pop() ?? "";
+      for (const part of parts) {
+        const line = part.split("\n").find((l) => l.startsWith("data:"));
+        if (!line) continue;
+        const payload = line.slice(5).trim();
+        if (payload === "[DONE]") continue;
+        let frame;
+        try {
+          frame = JSON.parse(payload);
+        } catch {
+          continue;
+        }
+        if (frame.type === "text") {
+          accumulated += frame.delta;
+          assistantGroup.bubble.innerHTML = `<div class="chat-md">${renderMarkdown(accumulated)}</div><span class="streaming-cursor"></span>`;
+          chatMessagesEl().scrollTop = chatMessagesEl().scrollHeight;
+        } else if (frame.type === "reasoning") {
+          reasoning += frame.delta;
+        } else if (frame.type === "error") {
+          throw new Error(frame.message);
+        } else if (frame.type === "done") {
+          finalFrame = frame;
+        }
+      }
+    }
+
+    assistantGroup.bubble.innerHTML = `<div class="chat-md">${renderMarkdown(accumulated || "(empty response)")}</div>`;
+    addMessageActions(assistantGroup.group, () => accumulated);
+    if (finalFrame) {
+      const tokens = finalFrame.usage ? `${finalFrame.usage.inputTokens} in / ${finalFrame.usage.outputTokens} out tokens` : "";
+      assistantGroup.meta.textContent = [finalFrame.model, tokens].filter(Boolean).join(" \u00b7 ");
+      assistantGroup.meta.classList.remove("hidden");
+    }
+    if (reasoning) {
+      const reasoningGroup = appendChatGroup("assistant");
+      reasoningGroup.bubble.classList.add("reasoning");
+      reasoningGroup.bubble.textContent = reasoning;
+      assistantGroup.group.before(reasoningGroup.group);
+    }
+  } catch (err) {
+    assistantGroup.bubble.classList.add("text-danger");
+    assistantGroup.bubble.textContent = `Error: ${err.message}`;
+  } finally {
+    input.disabled = false;
+    sendBtn.disabled = false;
+    input.focus();
+    chatInFlight = false;
+  }
+}
+
+function autoGrowTextarea(el) {
+  el.style.height = "auto";
+  el.style.height = `${Math.min(el.scrollHeight, 144)}px`;
+}
+
+function initChatTabOnce() {
+  if (chatInitialized) return;
+  chatInitialized = true;
+
+  if (!chatSessionId) chatSessionId = newChatSessionId();
+
+  const modelSelect = document.getElementById("chat-model-select");
+  modelSelect.innerHTML = "";
+  const autoOpt = document.createElement("option");
+  autoOpt.value = "";
+  autoOpt.textContent = `Default (${state.config.defaultModel})`;
+  modelSelect.appendChild(autoOpt);
+  for (const model of state.models) {
+    const opt = document.createElement("option");
+    opt.value = model.id;
+    opt.textContent = model.displayName ? `${model.displayName} (${model.id})` : model.id;
+    modelSelect.appendChild(opt);
+  }
+
+  const input = document.getElementById("chat-input");
+  input.addEventListener("input", () => autoGrowTextarea(input));
+  input.addEventListener("keydown", (event) => {
+    if (event.key === "Enter" && !event.shiftKey) {
+      event.preventDefault();
+      document.querySelector('[data-action="chat-form"]').requestSubmit();
     }
   });
+
+  document.querySelector('[data-action="chat-form"]').addEventListener("submit", (event) => {
+    event.preventDefault();
+    const message = input.value.trim();
+    if (!message) return;
+    input.value = "";
+    autoGrowTextarea(input);
+    void submitChatMessage(message);
+  });
+
+  document.querySelector('[data-action="chat-new"]').addEventListener("click", () => {
+    chatSessionId = newChatSessionId();
+    chatMessagesEl().innerHTML = `<div class="empty-state">
+      <svg class="h-9 w-9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M8 10h8M8 14h5M21 12c0 4.97-4.03 9-9 9-1.5 0-2.9-.37-4.14-1.02L3 21l1.06-3.68A8.96 8.96 0 0 1 3 12c0-4.97 4.03-9 9-9s9 4.03 9 9Z"/></svg>
+      <p>Start a conversation below.</p>
+    </div>`;
+    toast("Started a new conversation.");
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Dashboard: models
+// ---------------------------------------------------------------------------
+
+function modelCardHtml(model, isDefault) {
+  const aliases = (model.aliases || []).map((a) => `<span class="pill">${escapeHtml(a)}</span>`).join(" ");
+  const variants = (model.variants || [])
+    .map(
+      (v) =>
+        `<div class="model-card-variant"><strong class="text-slate-300">${escapeHtml(v.displayName)}</strong>${v.isDefault ? ' <span class="pill">default</span>' : ""}${v.description ? ` &mdash; ${escapeHtml(v.description)}` : ""}</div>`,
+    )
+    .join("");
+  return `<div class="model-card${isDefault ? " is-default" : ""}">
+    <div class="flex items-start justify-between gap-3">
+      <div class="min-w-0">
+        <div class="font-medium text-white truncate">${escapeHtml(model.displayName || model.id)}</div>
+        <div class="font-mono text-xs text-slate-500 truncate">${escapeHtml(model.id)}</div>
+      </div>
+      ${isDefault ? '<span class="badge badge-ok whitespace-nowrap">Default</span>' : `<button class="btn-secondary text-xs whitespace-nowrap" data-set-default-model="${escapeHtml(model.id)}" type="button">Set as default</button>`}
+    </div>
+    ${model.description ? `<p class="text-sm text-slate-400 mt-2">${escapeHtml(model.description)}</p>` : ""}
+    ${aliases ? `<div class="flex flex-wrap gap-1.5 mt-3">${aliases}</div>` : ""}
+    ${variants}
+  </div>`;
+}
+
+async function renderModelsTab() {
+  const grid = document.getElementById("models-grid");
+  if (!grid.dataset.loaded) {
+    grid.innerHTML = Array.from({ length: 4 }, () => `<div class="skeleton" style="height: 6rem"></div>`).join("");
+  }
+  try {
+    const result = await api("/models");
+    state.models = result.models || [];
+    grid.dataset.loaded = "1";
+    grid.dataset.note = result.note || "";
+    renderModelsGrid();
+  } catch (err) {
+    grid.innerHTML = emptyStateHtml(`Could not load models: ${escapeHtml(err.message)}`);
+  }
+}
+
+function renderModelsGrid() {
+  const grid = document.getElementById("models-grid");
+  const query = document.getElementById("models-filter").value;
+  const models = filterModels(state.models, query);
+  if (models.length === 0) {
+    grid.innerHTML = emptyStateHtml(grid.dataset.note || "No models found.");
+    return;
+  }
+  grid.innerHTML = models.map((m) => modelCardHtml(m, m.id === state.config.defaultModel)).join("");
+  grid.querySelectorAll("[data-set-default-model]").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      const id = btn.dataset.setDefaultModel;
+      try {
+        state.config = await api("/config", { method: "PATCH", body: JSON.stringify({ defaultModel: id }) });
+        populateSettingsForms();
+        renderModelsGrid();
+        toast(`Default model set to ${id}.`);
+      } catch (err) {
+        toast(err.message, "error");
+      }
+    });
+  });
+}
+
+function initModelsTab() {
+  document.getElementById("models-filter").addEventListener("input", renderModelsGrid);
+  document.querySelector('[data-action="refresh-models"]').addEventListener("click", () => renderModelsTab());
 }
 
 // ---------------------------------------------------------------------------
@@ -1009,6 +1350,15 @@ function renderSnippetBlocks(baseUrl, apiKey, model) {
       `{\n  "models": [\n    {\n      "title": "Cursor via gateway",\n      "provider": "openai",\n      "model": "${model}",\n      "apiBase": "${baseUrl}",\n      "apiKey": "${apiKey}"\n    }\n  ]\n}`,
     ),
   );
+
+  const gatewayOrigin = location.origin;
+  const keyFlag = apiKey && apiKey !== "not-needed" ? ` --key ${apiKey}` : "";
+  container.appendChild(
+    snippetBlock(
+      "CLI (from the project directory - or `npm link` once for a global `cursor-gateway` command)",
+      `node bin/cursor-gateway.mjs status --url ${gatewayOrigin}\nnode bin/cursor-gateway.mjs chat "Say hello" --model ${model} --url ${gatewayOrigin}${keyFlag}\nnode bin/cursor-gateway.mjs config set defaultModel=${model} --url ${gatewayOrigin}${keyFlag}`,
+    ),
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -1066,9 +1416,11 @@ async function init() {
   initLogin();
   initTabs();
   initSettingsForms();
+  initSettingsSubnav();
+  initConfigImport();
   initActivityTab();
   initSessionsTab();
-  initTestChat();
+  initModelsTab();
   initLogout();
   initCopyTargets();
 

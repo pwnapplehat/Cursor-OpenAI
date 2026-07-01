@@ -10,6 +10,8 @@
 <link href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500;600;700&family=Fira+Sans:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
 <script src="https://cdn.tailwindcss.com"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.9/dist/chart.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/marked@13.0.3/lib/marked.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/dompurify@3.1.6/dist/purify.min.js"></script>
 <script>
   tailwind.config = {
     darkMode: "class",
@@ -180,17 +182,22 @@
         <svg class="h-5 w-5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.86 9.86 0 0 1-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8Z"/></svg>
         <span>Sessions</span>
       </button>
-      <button data-tab="settings" class="nav-link">
-        <svg class="h-5 w-5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 0 0 2.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 0 0 1.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 0 0-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 0 0-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 0 0-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 0 0-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 0 0 1.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065Z"/><circle cx="12" cy="12" r="3"/></svg>
-        <span>Settings</span>
+      <button data-tab="models" class="nav-link">
+        <svg class="h-5 w-5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="m21 7.5-9-5.25L3 7.5m18 0-9 5.25m9-5.25v9l-9 5.25M3 7.5l9 5.25M3 7.5v9l9 5.25m0-9v9"/></svg>
+        <span>Models</span>
       </button>
-      <button data-tab="test" class="nav-link">
+      <button data-tab="chat" class="nav-link">
         <svg class="h-5 w-5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M8 10h8M8 14h5M21 12c0 4.97-4.03 9-9 9-1.5 0-2.9-.37-4.14-1.02L3 21l1.06-3.68A8.96 8.96 0 0 1 3 12c0-4.97 4.03-9 9-9s9 4.03 9 9Z"/></svg>
-        <span>Test chat</span>
+        <span>Chat</span>
       </button>
       <button data-tab="connect" class="nav-link">
         <svg class="h-5 w-5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M13.19 8.688a4.5 4.5 0 0 1 1.242 7.244l-4.5 4.5a4.5 4.5 0 0 1-6.364-6.364l1.757-1.757M10.81 15.312a4.5 4.5 0 0 1-1.242-7.244l4.5-4.5a4.5 4.5 0 0 1 6.364 6.364l-1.757 1.757"/></svg>
         <span>Connect</span>
+      </button>
+      <div class="h-px bg-border my-2"></div>
+      <button data-tab="settings" class="nav-link">
+        <svg class="h-5 w-5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 0 0 2.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 0 0 1.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 0 0-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 0 0-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 0 0-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 0 0-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 0 0 1.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065Z"/><circle cx="12" cy="12" r="3"/></svg>
+        <span>Settings</span>
       </button>
     </nav>
     <div class="p-3 border-t border-border">
@@ -214,15 +221,20 @@
         <button data-tab="overview" class="tab-btn">Overview</button>
         <button data-tab="activity" class="tab-btn">Activity</button>
         <button data-tab="sessions" class="tab-btn">Sessions</button>
-        <button data-tab="settings" class="tab-btn">Settings</button>
-        <button data-tab="test" class="tab-btn">Test chat</button>
+        <button data-tab="models" class="tab-btn">Models</button>
+        <button data-tab="chat" class="tab-btn">Chat</button>
         <button data-tab="connect" class="tab-btn">Connect</button>
+        <button data-tab="settings" class="tab-btn">Settings</button>
       </nav>
     </header>
 
     <main class="px-4 sm:px-6 lg:px-8 py-8 max-w-7xl mx-auto">
     <!-- Overview -->
     <div data-tab-panel="overview">
+      <div class="page-header">
+        <h1 class="page-title">Overview</h1>
+        <p class="page-subtitle">Live health, account, and traffic at a glance.</p>
+      </div>
       <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6" id="overview-cards"></div>
 
       <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6">
@@ -246,190 +258,282 @@
     </div>
 
     <!-- Activity -->
-    <div data-tab-panel="activity" class="hidden space-y-4">
-      <div class="card">
-        <div class="flex items-center justify-between flex-wrap gap-3">
-          <div>
-            <h2 class="card-title">Request activity</h2>
-            <p class="card-subtitle">Live view of requests this gateway process has handled (in-memory only - resets on restart).</p>
-          </div>
-          <div class="flex items-center gap-2">
-            <button class="btn-secondary text-sm" data-action="refresh-activity">Refresh</button>
-            <button class="btn-secondary text-sm text-danger" data-action="clear-activity">Clear</button>
-          </div>
+    <div data-tab-panel="activity" class="hidden">
+      <div class="page-header flex items-start justify-between gap-4 flex-wrap">
+        <div>
+          <h1 class="page-title">Activity</h1>
+          <p class="page-subtitle">Every request this gateway process has handled, live (in-memory only - resets on restart).</p>
         </div>
-        <div id="activity-table-full" class="mt-4 overflow-x-auto"></div>
+        <div class="flex items-center gap-2">
+          <button class="btn-secondary text-sm" data-action="refresh-activity">Refresh</button>
+          <button class="btn-secondary text-sm text-danger" data-action="clear-activity">Clear</button>
+        </div>
       </div>
+      <div class="card"><div id="activity-table-full" class="overflow-x-auto"></div></div>
     </div>
 
     <!-- Sessions -->
-    <div data-tab-panel="sessions" class="hidden space-y-4">
-      <div class="card">
-        <div class="flex items-center justify-between flex-wrap gap-3">
-          <div>
-            <h2 class="card-title">Active sessions</h2>
-            <p class="card-subtitle">Cached Cursor agents keeping multi-turn conversations alive. Evicting one just means that conversation's next message starts a fresh agent.</p>
-          </div>
-          <div class="flex items-center gap-2">
-            <button class="btn-secondary text-sm" data-action="refresh-sessions">Refresh</button>
-            <button class="btn-secondary text-sm text-danger" data-action="clear-sessions">Clear all</button>
-          </div>
+    <div data-tab-panel="sessions" class="hidden">
+      <div class="page-header flex items-start justify-between gap-4 flex-wrap">
+        <div>
+          <h1 class="page-title">Sessions</h1>
+          <p class="page-subtitle">Cached Cursor agents keeping multi-turn conversations alive. Evicting one just means that conversation's next message starts a fresh agent.</p>
         </div>
-        <div id="sessions-table" class="mt-4 overflow-x-auto"></div>
+        <div class="flex items-center gap-2">
+          <button class="btn-secondary text-sm" data-action="refresh-sessions">Refresh</button>
+          <button class="btn-secondary text-sm text-danger" data-action="clear-sessions">Clear all</button>
+        </div>
       </div>
+      <div class="card"><div id="sessions-table" class="overflow-x-auto"></div></div>
+    </div>
+
+    <!-- Models -->
+    <div data-tab-panel="models" class="hidden">
+      <div class="page-header flex items-start justify-between gap-4 flex-wrap">
+        <div>
+          <h1 class="page-title">Models</h1>
+          <p class="page-subtitle">Every model available to the configured Cursor account. Click a model to make it the gateway's default.</p>
+        </div>
+        <button class="btn-secondary text-sm" data-action="refresh-models">Refresh</button>
+      </div>
+      <input type="text" id="models-filter" placeholder="Search models&hellip;" class="input-field mb-4 max-w-sm" />
+      <div id="models-grid" class="grid grid-cols-1 md:grid-cols-2 gap-3"></div>
     </div>
 
     <!-- Settings -->
-    <div data-tab-panel="settings" class="hidden space-y-6">
-      <form data-settings-form="account" class="card">
-        <h2 class="card-title">Cursor account</h2>
-        <p class="card-subtitle">The credential this gateway uses to talk to Cursor on your behalf.</p>
-        <div class="grid sm:grid-cols-2 gap-4 mt-4">
-          <div>
-            <label class="field-label">Current key</label>
+    <div data-tab-panel="settings" class="hidden">
+      <div class="page-header">
+        <h1 class="page-title">Settings</h1>
+        <p class="page-subtitle">Every configurable option on this gateway. Changes apply live - most take effect immediately, with no restart.</p>
+      </div>
+
+      <nav class="settings-subnav" id="settings-subnav">
+        <button data-settings-section="general" class="settings-subnav-btn">General</button>
+        <button data-settings-section="sessions" class="settings-subnav-btn">Sessions &amp; memory</button>
+        <button data-settings-section="behavior" class="settings-subnav-btn">Behavior &amp; tools</button>
+        <button data-settings-section="limits" class="settings-subnav-btn">Performance &amp; limits</button>
+        <button data-settings-section="server" class="settings-subnav-btn">Network &amp; server</button>
+        <button data-settings-section="security" class="settings-subnav-btn">Security</button>
+        <button data-settings-section="logging" class="settings-subnav-btn">Logging</button>
+        <button data-settings-section="backup" class="settings-subnav-btn">Backup &amp; restore</button>
+        <button data-settings-section="system" class="settings-subnav-btn">System info</button>
+      </nav>
+
+      <form data-settings-form="general" data-settings-panel="general" class="card">
+        <div class="settings-row">
+          <div class="settings-row-info">
+            <div class="settings-row-title">Cursor API key</div>
+            <div class="settings-row-desc">The credential this gateway uses to talk to Cursor on your behalf.</div>
+          </div>
+          <div class="settings-row-control space-y-2">
             <input type="text" data-field="cursorApiKeyMasked" class="input-field font-mono" disabled />
+            <input type="password" data-field="cursorApiKey" class="input-field font-mono" placeholder="Paste a new key to replace it, or leave blank" autocomplete="off" />
           </div>
-          <div>
-            <label class="field-label">Replace key (optional)</label>
-            <input type="password" data-field="cursorApiKey" class="input-field font-mono" placeholder="Leave blank to keep current" autocomplete="off" />
+        </div>
+        <div class="settings-row">
+          <div class="settings-row-info">
+            <div class="settings-row-title">Key mode</div>
+            <div class="settings-row-desc">Whether every client shares this one key, or supplies its own.</div>
           </div>
-          <div>
-            <label class="field-label">Key mode</label>
+          <div class="settings-row-control">
             <select data-field="cursorKeyMode" class="input-field">
               <option value="server">Server (this key, for everyone)</option>
               <option value="passthrough">Passthrough (each client uses its own key)</option>
             </select>
           </div>
-          <div>
-            <label class="field-label">Runtime</label>
+        </div>
+        <div class="settings-row">
+          <div class="settings-row-info">
+            <div class="settings-row-title">Runtime</div>
+            <div class="settings-row-desc">Where Cursor agents actually execute.</div>
+          </div>
+          <div class="settings-row-control">
             <select data-field="cursorRuntime" class="input-field">
               <option value="local">Local (this machine)</option>
               <option value="cloud">Cloud (Cursor-hosted VM)</option>
             </select>
           </div>
         </div>
-        <div class="form-actions"><button type="submit" class="btn-primary">Save</button><span class="save-status"></span></div>
-      </form>
-
-      <form data-settings-form="model" class="card">
-        <h2 class="card-title">Model</h2>
-        <p class="card-subtitle">Used whenever a client omits "model" or requests one you don't have access to.</p>
-        <input type="text" id="settings-model-filter" placeholder="Search models&hellip;" class="input-field mt-4 mb-2" />
-        <div id="settings-model-list" class="model-list"></div>
-        <input type="hidden" data-field="defaultModel" />
-        <div class="form-actions"><button type="submit" class="btn-primary">Save</button><span class="save-status"></span></div>
-      </form>
-
-      <form data-settings-form="sessions" class="card">
-        <h2 class="card-title">Sessions</h2>
-        <p class="card-subtitle">How multi-turn conversations reuse a live Cursor agent instead of replaying history.</p>
-        <div class="grid sm:grid-cols-2 gap-4 mt-4">
-          <label class="toggle-row"><input type="checkbox" data-field="sessionsEnabled" /> <span>Enable sessions</span></label>
-          <label class="toggle-row"><input type="checkbox" data-field="autoSessionEnabled" /> <span>Auto-detect continuations</span></label>
-          <div>
-            <label class="field-label">Session idle timeout (minutes)</label>
-            <input type="number" min="1" data-field="sessionTtlMinutes" class="input-field" />
+        <div class="settings-row">
+          <div class="settings-row-info">
+            <div class="settings-row-title">Agent conversation mode</div>
+            <div class="settings-row-desc">"Plan" only reasons/plans; it never edits files or runs commands.</div>
           </div>
-          <div>
-            <label class="field-label">Max cached agents</label>
-            <input type="number" min="1" data-field="maxCachedAgents" class="input-field" />
-          </div>
-        </div>
-        <div class="form-actions"><button type="submit" class="btn-primary">Save</button><span class="save-status"></span></div>
-      </form>
-
-      <form data-settings-form="behavior" class="card">
-        <h2 class="card-title">Behavior</h2>
-        <div class="grid sm:grid-cols-2 gap-4 mt-4">
-          <div>
-            <label class="field-label">Agent conversation mode</label>
+          <div class="settings-row-control">
             <select data-field="cursorAgentMode" class="input-field">
               <option value="agent">Agent (can read/write files, run commands)</option>
               <option value="plan">Plan (planning only, no changes applied)</option>
             </select>
           </div>
-          <label class="toggle-row"><input type="checkbox" data-field="includeThinking" /> <span>Stream reasoning as <code>reasoning_content</code></span></label>
-          <label class="toggle-row"><input type="checkbox" data-field="toolBridgeEnabled" /> <span>Enable OpenAI tool-calling bridge</span></label>
         </div>
-        <div class="form-actions"><button type="submit" class="btn-primary">Save</button><span class="save-status"></span></div>
-      </form>
-
-      <form data-settings-form="limits" class="card">
-        <h2 class="card-title">Concurrency &amp; limits</h2>
-        <div class="grid sm:grid-cols-2 gap-4 mt-4">
-          <div>
-            <label class="field-label">Max concurrent runs</label>
-            <input type="number" min="1" data-field="maxConcurrentRuns" class="input-field" />
+        <div class="settings-row">
+          <div class="settings-row-info">
+            <div class="settings-row-title">Default model</div>
+            <div class="settings-row-desc">Used whenever a client omits "model" or requests one you don't have access to. Browse the full catalog under Models.</div>
           </div>
-          <div>
-            <label class="field-label">Request timeout (seconds)</label>
-            <input type="number" min="1" data-field="requestTimeoutSeconds" class="input-field" />
-          </div>
-          <div>
-            <label class="field-label">Rate limit &mdash; max requests</label>
-            <input type="number" min="1" data-field="rateLimitMax" class="input-field" />
-          </div>
-          <div>
-            <label class="field-label">Rate limit window (seconds) <span class="text-slate-500">&mdash; restart required</span></label>
-            <input type="number" min="1" data-field="rateLimitWindowSeconds" class="input-field" />
+          <div class="settings-row-control">
+            <input type="text" id="settings-model-filter" placeholder="Search models&hellip;" class="input-field mb-2" />
+            <div id="settings-model-list" class="model-list"></div>
+            <input type="hidden" data-field="defaultModel" />
           </div>
         </div>
         <div class="form-actions"><button type="submit" class="btn-primary">Save</button><span class="save-status"></span></div>
       </form>
 
-      <form data-settings-form="server" class="card">
-        <h2 class="card-title">Server</h2>
-        <p class="card-subtitle">Changing these reconnects the running server on a new address &mdash; this page will follow automatically.</p>
-        <div class="grid sm:grid-cols-2 gap-4 mt-4">
-          <div>
-            <label class="field-label">Host</label>
-            <input type="text" data-field="host" class="input-field font-mono" />
+      <form data-settings-form="sessions" data-settings-panel="sessions" class="hidden card">
+        <div class="settings-row">
+          <div class="settings-row-info">
+            <div class="settings-row-title">Sessions</div>
+            <div class="settings-row-desc">How multi-turn conversations reuse a live Cursor agent instead of replaying history.</div>
           </div>
-          <div>
-            <label class="field-label">Port</label>
-            <input type="number" min="1" max="65535" data-field="port" class="input-field font-mono" />
-          </div>
-          <div>
-            <label class="field-label">CORS origin</label>
-            <input type="text" data-field="corsOrigin" class="input-field font-mono" placeholder="*" />
+          <div class="settings-row-control space-y-2">
+            <label class="toggle-row"><input type="checkbox" data-field="sessionsEnabled" /> <span>Enable sessions</span></label>
+            <label class="toggle-row"><input type="checkbox" data-field="autoSessionEnabled" /> <span>Auto-detect continuations (for clients that resend full history)</span></label>
           </div>
         </div>
-        <label class="toggle-row mt-4">
-          <input type="checkbox" data-field="autoOpenBrowser" />
-          <span>Open the dashboard in a browser automatically on startup</span>
-        </label>
+        <div class="settings-row">
+          <div class="settings-row-info">
+            <div class="settings-row-title">Session idle timeout</div>
+            <div class="settings-row-desc">Minutes of inactivity before a cached agent is evicted.</div>
+          </div>
+          <div class="settings-row-control"><input type="number" min="1" data-field="sessionTtlMinutes" class="input-field max-w-xs" /></div>
+        </div>
+        <div class="settings-row">
+          <div class="settings-row-info">
+            <div class="settings-row-title">Max cached agents</div>
+            <div class="settings-row-desc">Oldest-used sessions are evicted first once this limit is reached.</div>
+          </div>
+          <div class="settings-row-control"><input type="number" min="1" data-field="maxCachedAgents" class="input-field max-w-xs" /></div>
+        </div>
+        <div class="form-actions"><button type="submit" class="btn-primary">Save</button><span class="save-status"></span></div>
+      </form>
+
+      <form data-settings-form="behavior" data-settings-panel="behavior" class="hidden card">
+        <div class="settings-row">
+          <div class="settings-row-info">
+            <div class="settings-row-title">Reasoning</div>
+            <div class="settings-row-desc">Stream the model's chain-of-thought as an OpenAI-style <code>reasoning_content</code> field.</div>
+          </div>
+          <div class="settings-row-control"><label class="toggle-row"><input type="checkbox" data-field="includeThinking" /> <span>Include reasoning in responses</span></label></div>
+        </div>
+        <div class="settings-row">
+          <div class="settings-row-info">
+            <div class="settings-row-title">Tool-calling bridge</div>
+            <div class="settings-row-desc">Translates OpenAI <code>tools[]</code> function-calling into Cursor's native tool system (local runtime only).</div>
+          </div>
+          <div class="settings-row-control"><label class="toggle-row"><input type="checkbox" data-field="toolBridgeEnabled" /> <span>Enable OpenAI tool-calling bridge</span></label></div>
+        </div>
+        <div class="form-actions"><button type="submit" class="btn-primary">Save</button><span class="save-status"></span></div>
+      </form>
+
+      <form data-settings-form="limits" data-settings-panel="limits" class="hidden card">
+        <div class="settings-row">
+          <div class="settings-row-info">
+            <div class="settings-row-title">Max concurrent runs</div>
+            <div class="settings-row-desc">Total Cursor agent runs allowed in flight at once, across all clients.</div>
+          </div>
+          <div class="settings-row-control"><input type="number" min="1" data-field="maxConcurrentRuns" class="input-field max-w-xs" /></div>
+        </div>
+        <div class="settings-row">
+          <div class="settings-row-info">
+            <div class="settings-row-title">Request timeout</div>
+            <div class="settings-row-desc">Seconds before an in-progress run is cancelled and reported as a timeout.</div>
+          </div>
+          <div class="settings-row-control"><input type="number" min="1" data-field="requestTimeoutSeconds" class="input-field max-w-xs" /></div>
+        </div>
+        <div class="settings-row">
+          <div class="settings-row-info">
+            <div class="settings-row-title">Rate limit &mdash; max requests</div>
+            <div class="settings-row-desc">Per client (by API key/IP), per window.</div>
+          </div>
+          <div class="settings-row-control"><input type="number" min="1" data-field="rateLimitMax" class="input-field max-w-xs" /></div>
+        </div>
+        <div class="settings-row">
+          <div class="settings-row-info">
+            <div class="settings-row-title">Rate limit window</div>
+            <div class="settings-row-desc">Seconds per window. <span class="text-amber-400">Requires a restart to take effect</span> - everything else on this page is fully live.</div>
+          </div>
+          <div class="settings-row-control"><input type="number" min="1" data-field="rateLimitWindowSeconds" class="input-field max-w-xs" /></div>
+        </div>
+        <div class="form-actions"><button type="submit" class="btn-primary">Save</button><span class="save-status"></span></div>
+      </form>
+
+      <form data-settings-form="server" data-settings-panel="server" class="hidden card">
+        <p class="card-subtitle mb-2">Changing host/port reconnects the running server on the new address &mdash; this page follows automatically.</p>
+        <div class="settings-row">
+          <div class="settings-row-info">
+            <div class="settings-row-title">Host</div>
+            <div class="settings-row-desc">Network interface to listen on. <code>0.0.0.0</code> to accept connections from other devices.</div>
+          </div>
+          <div class="settings-row-control"><input type="text" data-field="host" class="input-field font-mono max-w-xs" /></div>
+        </div>
+        <div class="settings-row">
+          <div class="settings-row-info">
+            <div class="settings-row-title">Port</div>
+            <div class="settings-row-desc">If already in use on startup, the gateway automatically tries the next few ports instead.</div>
+          </div>
+          <div class="settings-row-control"><input type="number" min="1" max="65535" data-field="port" class="input-field font-mono max-w-xs" /></div>
+        </div>
+        <div class="settings-row">
+          <div class="settings-row-info">
+            <div class="settings-row-title">CORS origin</div>
+            <div class="settings-row-desc">Allowed origins for browser-based clients. <code>*</code> for any.</div>
+          </div>
+          <div class="settings-row-control"><input type="text" data-field="corsOrigin" class="input-field font-mono max-w-xs" placeholder="*" /></div>
+        </div>
+        <div class="settings-row">
+          <div class="settings-row-info">
+            <div class="settings-row-title">Auto-open browser</div>
+            <div class="settings-row-desc">Open this dashboard automatically whenever the gateway process starts.</div>
+          </div>
+          <div class="settings-row-control"><label class="toggle-row"><input type="checkbox" data-field="autoOpenBrowser" /> <span>Open on startup</span></label></div>
+        </div>
         <div class="form-actions"><button type="submit" class="btn-primary">Save &amp; reconnect</button><span class="save-status"></span></div>
       </form>
 
-      <form data-settings-form="security" class="card">
-        <h2 class="card-title">Security</h2>
-        <div class="flex items-center gap-3 mt-4">
-          <input type="text" data-field="authKeyMasked" class="input-field font-mono flex-1" disabled />
-          <button type="button" data-action="regenerate-key" class="btn-secondary whitespace-nowrap">New key</button>
-          <button type="button" data-action="clear-key" class="btn-secondary whitespace-nowrap text-danger">Remove</button>
-        </div>
-        <div id="revealed-key-box" class="hidden mt-3">
-          <p class="text-sm text-slate-300 mb-2">New admin key &mdash; save it now, it will not be shown again:</p>
-          <div class="flex items-center gap-2">
-            <code id="revealed-key" class="flex-1 truncate bg-bg border border-border rounded-lg px-3 py-2 font-mono text-sm text-accent"></code>
-            <button data-action="copy-revealed-key" class="btn-icon" type="button" title="Copy">
-              <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 012-2h10"/></svg>
-            </button>
+      <form data-settings-form="security" data-settings-panel="security" class="hidden card">
+        <div class="settings-row">
+          <div class="settings-row-info">
+            <div class="settings-row-title">Admin key</div>
+            <div class="settings-row-desc">Protects this dashboard, its API, and (if you choose) the OpenAI-compatible endpoints.</div>
+          </div>
+          <div class="settings-row-control">
+            <div class="flex items-center gap-2">
+              <input type="text" data-field="authKeyMasked" class="input-field font-mono flex-1" disabled />
+              <button type="button" data-action="regenerate-key" class="btn-secondary whitespace-nowrap">New key</button>
+              <button type="button" data-action="clear-key" class="btn-secondary whitespace-nowrap text-danger">Remove</button>
+            </div>
+            <div id="revealed-key-box" class="hidden mt-3">
+              <p class="text-sm text-slate-300 mb-2">New admin key &mdash; save it now, it will not be shown again:</p>
+              <div class="flex items-center gap-2">
+                <code id="revealed-key" class="flex-1 truncate bg-bg border border-border rounded-lg px-3 py-2 font-mono text-sm text-accent"></code>
+                <button data-action="copy-revealed-key" class="btn-icon" type="button" title="Copy">
+                  <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 012-2h10"/></svg>
+                </button>
+              </div>
+            </div>
           </div>
         </div>
-        <label class="toggle-row mt-4">
-          <input type="checkbox" data-field="adminAllowRemote" />
-          <span>Allow admin dashboard from other devices on the network <span class="text-danger">(not recommended)</span></span>
-        </label>
+        <div class="settings-row">
+          <div class="settings-row-info">
+            <div class="settings-row-title">Remote dashboard access</div>
+            <div class="settings-row-desc">By default the dashboard/API only accept requests from this machine, regardless of the admin key.</div>
+          </div>
+          <div class="settings-row-control">
+            <label class="toggle-row"><input type="checkbox" data-field="adminAllowRemote" /> <span>Allow from other devices on the network <span class="text-danger">(not recommended)</span></span></label>
+          </div>
+        </div>
         <div class="form-actions"><button type="submit" class="btn-primary">Save</button><span class="save-status"></span></div>
       </form>
 
-      <form data-settings-form="logging" class="card">
-        <h2 class="card-title">Logging</h2>
-        <div class="grid sm:grid-cols-2 gap-4 mt-4">
-          <div>
-            <label class="field-label">Log level</label>
-            <select data-field="logLevel" class="input-field">
+      <form data-settings-form="logging" data-settings-panel="logging" class="hidden card">
+        <div class="settings-row">
+          <div class="settings-row-info">
+            <div class="settings-row-title">Log level</div>
+            <div class="settings-row-desc">Verbosity of server logs.</div>
+          </div>
+          <div class="settings-row-control">
+            <select data-field="logLevel" class="input-field max-w-xs">
               <option value="fatal">fatal</option>
               <option value="error">error</option>
               <option value="warn">warn</option>
@@ -439,35 +543,77 @@
               <option value="silent">silent</option>
             </select>
           </div>
-          <label class="toggle-row"><input type="checkbox" data-field="logPretty" /> <span>Pretty-print logs</span></label>
+        </div>
+        <div class="settings-row">
+          <div class="settings-row-info">
+            <div class="settings-row-title">Pretty-print logs</div>
+            <div class="settings-row-desc">Human-readable console output instead of raw JSON lines.</div>
+          </div>
+          <div class="settings-row-control"><label class="toggle-row"><input type="checkbox" data-field="logPretty" /> <span>Pretty-print</span></label></div>
         </div>
         <div class="form-actions"><button type="submit" class="btn-primary">Save</button><span class="save-status"></span></div>
       </form>
 
-      <div class="card">
-        <h2 class="card-title">Backup</h2>
+      <div data-settings-panel="backup" class="hidden card">
+        <h2 class="card-title">Export</h2>
         <p class="card-subtitle">Download the full current configuration (including secrets) as JSON, for your own records or to restore later.</p>
         <div class="form-actions">
           <button type="button" data-action="export-config" class="btn-secondary">Download configuration</button>
         </div>
+        <div class="mt-8 pt-6 border-t border-border">
+          <h2 class="card-title">Import</h2>
+          <p class="card-subtitle">Restore settings from a previously exported file. Unrecognized or secret-looking fields are safely skipped and reported below.</p>
+          <label class="file-drop mt-4 block" for="import-config-file">
+            <input type="file" id="import-config-file" accept="application/json" class="hidden" />
+            <span id="import-config-filename">Click to choose a configuration JSON file&hellip;</span>
+          </label>
+          <div class="form-actions">
+            <button type="button" data-action="import-config" class="btn-secondary" disabled>Apply configuration</button>
+            <span class="save-status" id="import-config-status"></span>
+          </div>
+          <div id="import-config-result" class="mt-3 text-sm hidden"></div>
+        </div>
+      </div>
+
+      <div data-settings-panel="system" class="hidden card">
+        <h2 class="card-title">System info</h2>
+        <p class="card-subtitle">Read-only. <code>Workdir root</code> and <code>Node env</code> are set via environment variables and require a restart to change.</p>
+        <dl class="kv-table mt-4" id="system-info-table"></dl>
       </div>
     </div>
 
-    <!-- Test chat -->
-    <div data-tab-panel="test" class="hidden">
-      <div class="card">
-        <h2 class="card-title">Try it right here</h2>
-        <p class="card-subtitle">Sends a real message through the gateway using your configured Cursor account &mdash; no code needed.</p>
-        <div id="test-chat-messages" class="mt-4 mb-4 space-y-3 max-h-[28rem] overflow-y-auto pr-1"></div>
-        <form data-action="test-chat-form" class="flex gap-2">
-          <input type="text" id="test-chat-input" placeholder="Say something&hellip;" class="input-field flex-1" autocomplete="off" />
-          <button type="submit" class="btn-primary whitespace-nowrap">Send</button>
+    <!-- Chat -->
+    <div data-tab-panel="chat" class="hidden">
+      <div class="page-header flex items-start justify-between gap-4 flex-wrap">
+        <div>
+          <h1 class="page-title">Chat</h1>
+          <p class="page-subtitle">A real conversation through this gateway, using your configured Cursor account &mdash; no code needed.</p>
+        </div>
+        <div class="flex items-center gap-2">
+          <select id="chat-model-select" class="input-field w-auto text-sm"></select>
+          <button class="btn-secondary text-sm" data-action="chat-new">New conversation</button>
+        </div>
+      </div>
+      <div class="card chat-shell">
+        <div id="chat-messages" class="chat-messages">
+          <div class="empty-state">
+            <svg class="h-9 w-9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M8 10h8M8 14h5M21 12c0 4.97-4.03 9-9 9-1.5 0-2.9-.37-4.14-1.02L3 21l1.06-3.68A8.96 8.96 0 0 1 3 12c0-4.97 4.03-9 9-9s9 4.03 9 9Z"/></svg>
+            <p>Start a conversation below.</p>
+          </div>
+        </div>
+        <form data-action="chat-form" class="chat-input-row">
+          <textarea id="chat-input" rows="1" placeholder="Message the model&hellip; (Enter to send, Shift+Enter for a new line)" class="input-field chat-textarea" autocomplete="off"></textarea>
+          <button type="submit" class="btn-primary whitespace-nowrap" id="chat-send-btn">Send</button>
         </form>
       </div>
     </div>
 
     <!-- Connect -->
     <div data-tab-panel="connect" class="hidden space-y-6">
+      <div class="page-header">
+        <h1 class="page-title">Connect</h1>
+        <p class="page-subtitle">Point any OpenAI-compatible client at this gateway, or use the CLI for scripted/automated setups.</p>
+      </div>
       <div class="card">
         <h2 class="card-title">Connect any OpenAI-compatible tool</h2>
         <p class="card-subtitle">Point it at this base URL and API key. Pick a model to fill the snippets below.</p>

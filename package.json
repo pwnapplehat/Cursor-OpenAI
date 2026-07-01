@@ -22,6 +22,9 @@
   "homepage": "https://github.com/pwnapplehat/Cursor-OpenAI#readme",
   "type": "commonjs",
   "main": "dist/index.js",
+  "bin": {
+    "cursor-gateway": "bin/cursor-gateway.mjs"
+  },
   "engines": {
     "node": ">=22.13.0"
   },

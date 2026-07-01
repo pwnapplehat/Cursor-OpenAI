@@ -31,6 +31,15 @@ const EDITABLE_INT_FIELDS = [
   "rateLimitMax",
   "port",
 ] as const;
+const EDITABLE_ENUM_FIELDS = ["cursorKeyMode", "cursorRuntime", "cursorAgentMode", "logLevel"] as const;
+
+/** Every top-level `AppConfig` field the admin API/UI is allowed to change - used by `ConfigStore.isEditableField` for config import to decide what to apply vs. silently ignore. */
+export const ALL_EDITABLE_CONFIG_FIELDS: readonly string[] = [
+  ...EDITABLE_STRING_FIELDS,
+  ...EDITABLE_BOOL_FIELDS,
+  ...EDITABLE_INT_FIELDS,
+  ...EDITABLE_ENUM_FIELDS,
+];
 
 function maskSecretForApi(value: string | undefined): string | null {
   if (!value) return null;
@@ -84,6 +93,11 @@ export class ConfigStore {
 
   get setupComplete(): boolean {
     return isSetupComplete(this.config);
+  }
+
+  /** Whether `field` is one `update()`/config-import will actually apply - everything else (`cursorWorkdirRoot`, `nodeEnv`, `authKey`, computed fields like `hasCursorApiKey`) is silently ignored rather than rejected, so re-importing a full config export never fails outright. */
+  static isEditableField(field: string): boolean {
+    return (ALL_EDITABLE_CONFIG_FIELDS as string[]).includes(field);
   }
 
   /** Snapshot safe to serialize in an API response - secrets are masked, never returned in full once set. */
