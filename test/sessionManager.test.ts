@@ -155,3 +155,87 @@ test("SessionManager creates a fresh agent when no session id matches and there 
   assert.equal(createCount, 2);
   assert.notEqual(handle1.agent.agentId, handle2.agent.agentId);
 });
+
+test("SessionManager.listSessions returns display-safe metadata for every cached session, newest-used first", async (t) => {
+  let createCount = 0;
+  const originalCreate = Agent.create;
+  Agent.create = (() => {
+    createCount += 1;
+    return Promise.resolve(makeFakeAgent(`agent-${createCount}`));
+  }) as typeof Agent.create;
+  t.after(() => {
+    Agent.create = originalCreate;
+  });
+
+  const manager = new SessionManager(makeConfig(), silentLog);
+  t.after(() => manager.shutdown());
+  const model = { id: "composer-2.5" };
+
+  await manager.resolve({ apiKey: "k", model, messages: [{ role: "user", content: "first" }], metadata: { session_id: "s1" } });
+  await new Promise((resolve) => setTimeout(resolve, 5));
+  await manager.resolve({ apiKey: "k", model, messages: [{ role: "user", content: "second" }], metadata: { session_id: "s2" } });
+
+  const sessions = manager.listSessions();
+  assert.equal(sessions.length, 2);
+  assert.equal(sessions[0]!.type, "explicit");
+  assert.equal(sessions[0]!.agentId, "agent-2", "most recently used (s2) should be listed first");
+  assert.equal(sessions[1]!.agentId, "agent-1");
+  assert.equal(sessions[0]!.messageCount, 0, "messageCount reflects lastMessages, which is only populated by remember()");
+});
+
+test("SessionManager.evict removes a specific session by id and disposes its agent", async (t) => {
+  const originalCreate = Agent.create;
+  const closedAgentIds: string[] = [];
+  Agent.create = (() =>
+    Promise.resolve({
+      ...makeFakeAgent("agent-evict-me"),
+      close: () => {
+        closedAgentIds.push("agent-evict-me");
+      },
+    })) as typeof Agent.create;
+  t.after(() => {
+    Agent.create = originalCreate;
+  });
+
+  const manager = new SessionManager(makeConfig(), silentLog);
+  t.after(() => manager.shutdown());
+  const model = { id: "composer-2.5" };
+
+  await manager.resolve({ apiKey: "k", model, messages: [{ role: "user", content: "hi" }], metadata: { session_id: "to-evict" } });
+  const [session] = manager.listSessions();
+  assert.ok(session);
+
+  const evicted = manager.evict(session.id);
+  assert.equal(evicted, true);
+  assert.deepEqual(closedAgentIds, ["agent-evict-me"]);
+  assert.equal(manager.listSessions().length, 0);
+});
+
+test("SessionManager.evict returns false for an unknown id", () => {
+  const manager = new SessionManager(makeConfig(), silentLog);
+  assert.equal(manager.evict("does-not-exist"), false);
+  manager.shutdown();
+});
+
+test("SessionManager.evictAll clears every cached session and reports how many were removed", async (t) => {
+  let createCount = 0;
+  const originalCreate = Agent.create;
+  Agent.create = (() => {
+    createCount += 1;
+    return Promise.resolve(makeFakeAgent(`agent-${createCount}`));
+  }) as typeof Agent.create;
+  t.after(() => {
+    Agent.create = originalCreate;
+  });
+
+  const manager = new SessionManager(makeConfig(), silentLog);
+  t.after(() => manager.shutdown());
+  const model = { id: "composer-2.5" };
+
+  await manager.resolve({ apiKey: "k", model, messages: [{ role: "user", content: "a" }], metadata: { session_id: "s1" } });
+  await manager.resolve({ apiKey: "k", model, messages: [{ role: "user", content: "b" }], metadata: { session_id: "s2" } });
+
+  const removed = manager.evictAll();
+  assert.equal(removed, 2);
+  assert.equal(manager.listSessions().length, 0);
+});

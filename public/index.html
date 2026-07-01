@@ -9,6 +9,7 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500;600;700&family=Fira+Sans:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
 <script src="https://cdn.tailwindcss.com"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.9/dist/chart.umd.min.js"></script>
 <script>
   tailwind.config = {
     darkMode: "class",
@@ -159,42 +160,122 @@
 </section>
 
 <!-- Dashboard -->
-<section data-view="dashboard" class="hidden min-h-screen">
-  <header class="border-b border-border bg-surface/60 backdrop-blur sticky top-0 z-30">
-    <div class="max-w-6xl mx-auto px-4 sm:px-6 flex items-center justify-between h-16">
-      <div class="flex items-center gap-6">
-        <div class="flex items-center gap-2 font-mono text-sm font-medium text-white">
-          <span class="inline-block h-2 w-2 rounded-full bg-accent animate-pulse"></span>
-          Cursor OpenAI Gateway
-        </div>
-        <nav class="hidden sm:flex items-center gap-1" id="dashboard-nav">
-          <button data-tab="overview" class="tab-btn">Overview</button>
-          <button data-tab="settings" class="tab-btn">Settings</button>
-          <button data-tab="test" class="tab-btn">Test chat</button>
-          <button data-tab="connect" class="tab-btn">Connect</button>
-        </nav>
-      </div>
-      <button data-action="logout" class="hidden text-sm text-slate-400 hover:text-white transition-colors" id="logout-btn">Sign out</button>
+<section data-view="dashboard" class="hidden min-h-screen lg:flex">
+  <!-- Sidebar (desktop) -->
+  <aside class="hidden lg:flex lg:flex-col w-64 shrink-0 border-r border-border bg-surface/40 h-screen sticky top-0">
+    <div class="h-16 flex items-center gap-2 px-5 border-b border-border font-mono text-sm font-medium text-white">
+      <span class="inline-block h-2 w-2 rounded-full bg-accent animate-pulse"></span>
+      Cursor Gateway
     </div>
-    <nav class="flex sm:hidden items-center gap-1 px-4 pb-2 overflow-x-auto" id="dashboard-nav-mobile">
-      <button data-tab="overview" class="tab-btn">Overview</button>
-      <button data-tab="settings" class="tab-btn">Settings</button>
-      <button data-tab="test" class="tab-btn">Test chat</button>
-      <button data-tab="connect" class="tab-btn">Connect</button>
+    <nav class="flex-1 px-3 py-4 space-y-1" id="dashboard-nav">
+      <button data-tab="overview" class="nav-link">
+        <svg class="h-5 w-5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg>
+        <span>Overview</span>
+      </button>
+      <button data-tab="activity" class="nav-link">
+        <svg class="h-5 w-5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M13 2 3 14h7l-1 8 10-12h-7l1-8Z"/></svg>
+        <span>Activity</span>
+      </button>
+      <button data-tab="sessions" class="nav-link">
+        <svg class="h-5 w-5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.86 9.86 0 0 1-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8Z"/></svg>
+        <span>Sessions</span>
+      </button>
+      <button data-tab="settings" class="nav-link">
+        <svg class="h-5 w-5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 0 0 2.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 0 0 1.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 0 0-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 0 0-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 0 0-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 0 0-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 0 0 1.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065Z"/><circle cx="12" cy="12" r="3"/></svg>
+        <span>Settings</span>
+      </button>
+      <button data-tab="test" class="nav-link">
+        <svg class="h-5 w-5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M8 10h8M8 14h5M21 12c0 4.97-4.03 9-9 9-1.5 0-2.9-.37-4.14-1.02L3 21l1.06-3.68A8.96 8.96 0 0 1 3 12c0-4.97 4.03-9 9-9s9 4.03 9 9Z"/></svg>
+        <span>Test chat</span>
+      </button>
+      <button data-tab="connect" class="nav-link">
+        <svg class="h-5 w-5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M13.19 8.688a4.5 4.5 0 0 1 1.242 7.244l-4.5 4.5a4.5 4.5 0 0 1-6.364-6.364l1.757-1.757M10.81 15.312a4.5 4.5 0 0 1-1.242-7.244l4.5-4.5a4.5 4.5 0 0 1 6.364 6.364l-1.757 1.757"/></svg>
+        <span>Connect</span>
+      </button>
     </nav>
-  </header>
+    <div class="p-3 border-t border-border">
+      <button data-action="logout" class="hidden nav-link w-full" id="logout-btn">
+        <svg class="h-5 w-5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M15.75 9V5.25A2.25 2.25 0 0 0 13.5 3h-6a2.25 2.25 0 0 0-2.25 2.25v13.5A2.25 2.25 0 0 0 7.5 21h6a2.25 2.25 0 0 0 2.25-2.25V15M12 9l3 3m0 0-3 3m3-3H3.75"/></svg>
+        <span>Sign out</span>
+      </button>
+    </div>
+  </aside>
 
-  <main class="max-w-6xl mx-auto px-4 sm:px-6 py-8">
+  <div class="flex-1 min-w-0">
+    <!-- Top bar (mobile + tablet) -->
+    <header class="lg:hidden border-b border-border bg-surface/60 backdrop-blur sticky top-0 z-30">
+      <div class="px-4 flex items-center justify-between h-14">
+        <div class="flex items-center gap-2 font-mono text-sm font-medium text-white">
+          <span class="inline-block h-2 w-2 rounded-full bg-accent animate-pulse"></span> Cursor Gateway
+        </div>
+        <button data-action="logout" class="hidden text-sm text-slate-400 hover:text-white transition-colors" id="logout-btn-mobile">Sign out</button>
+      </div>
+      <nav class="flex items-center gap-1 px-3 pb-2 overflow-x-auto" id="dashboard-nav-mobile">
+        <button data-tab="overview" class="tab-btn">Overview</button>
+        <button data-tab="activity" class="tab-btn">Activity</button>
+        <button data-tab="sessions" class="tab-btn">Sessions</button>
+        <button data-tab="settings" class="tab-btn">Settings</button>
+        <button data-tab="test" class="tab-btn">Test chat</button>
+        <button data-tab="connect" class="tab-btn">Connect</button>
+      </nav>
+    </header>
+
+    <main class="px-4 sm:px-6 lg:px-8 py-8 max-w-7xl mx-auto">
     <!-- Overview -->
     <div data-tab-panel="overview">
-      <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-8" id="overview-cards"></div>
-      <div class="card">
-        <h2 class="card-title">Quick actions</h2>
-        <div class="flex flex-wrap gap-3 mt-3">
-          <button class="btn-secondary" data-goto-tab="test">Try a message</button>
-          <button class="btn-secondary" data-goto-tab="connect">Get connection snippets</button>
-          <button class="btn-secondary" data-goto-tab="settings">Change default model</button>
+      <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6" id="overview-cards"></div>
+
+      <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6">
+        <div class="card lg:col-span-2">
+          <h2 class="card-title">Requests, last 24 hours</h2>
+          <div class="mt-4" style="height: 220px"><canvas id="requests-chart"></canvas></div>
         </div>
+        <div class="card">
+          <h2 class="card-title">Requests by model</h2>
+          <div id="model-breakdown" class="mt-4 space-y-3"></div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="flex items-center justify-between">
+          <h2 class="card-title">Recent activity</h2>
+          <button class="btn-secondary text-xs" data-goto-tab="activity">View all</button>
+        </div>
+        <div id="overview-activity-table" class="mt-4 overflow-x-auto"></div>
+      </div>
+    </div>
+
+    <!-- Activity -->
+    <div data-tab-panel="activity" class="hidden space-y-4">
+      <div class="card">
+        <div class="flex items-center justify-between flex-wrap gap-3">
+          <div>
+            <h2 class="card-title">Request activity</h2>
+            <p class="card-subtitle">Live view of requests this gateway process has handled (in-memory only - resets on restart).</p>
+          </div>
+          <div class="flex items-center gap-2">
+            <button class="btn-secondary text-sm" data-action="refresh-activity">Refresh</button>
+            <button class="btn-secondary text-sm text-danger" data-action="clear-activity">Clear</button>
+          </div>
+        </div>
+        <div id="activity-table-full" class="mt-4 overflow-x-auto"></div>
+      </div>
+    </div>
+
+    <!-- Sessions -->
+    <div data-tab-panel="sessions" class="hidden space-y-4">
+      <div class="card">
+        <div class="flex items-center justify-between flex-wrap gap-3">
+          <div>
+            <h2 class="card-title">Active sessions</h2>
+            <p class="card-subtitle">Cached Cursor agents keeping multi-turn conversations alive. Evicting one just means that conversation's next message starts a fresh agent.</p>
+          </div>
+          <div class="flex items-center gap-2">
+            <button class="btn-secondary text-sm" data-action="refresh-sessions">Refresh</button>
+            <button class="btn-secondary text-sm text-danger" data-action="clear-sessions">Clear all</button>
+          </div>
+        </div>
+        <div id="sessions-table" class="mt-4 overflow-x-auto"></div>
       </div>
     </div>
 
@@ -260,6 +341,13 @@
       <form data-settings-form="behavior" class="card">
         <h2 class="card-title">Behavior</h2>
         <div class="grid sm:grid-cols-2 gap-4 mt-4">
+          <div>
+            <label class="field-label">Agent conversation mode</label>
+            <select data-field="cursorAgentMode" class="input-field">
+              <option value="agent">Agent (can read/write files, run commands)</option>
+              <option value="plan">Plan (planning only, no changes applied)</option>
+            </select>
+          </div>
           <label class="toggle-row"><input type="checkbox" data-field="includeThinking" /> <span>Stream reasoning as <code>reasoning_content</code></span></label>
           <label class="toggle-row"><input type="checkbox" data-field="toolBridgeEnabled" /> <span>Enable OpenAI tool-calling bridge</span></label>
         </div>
@@ -306,6 +394,10 @@
             <input type="text" data-field="corsOrigin" class="input-field font-mono" placeholder="*" />
           </div>
         </div>
+        <label class="toggle-row mt-4">
+          <input type="checkbox" data-field="autoOpenBrowser" />
+          <span>Open the dashboard in a browser automatically on startup</span>
+        </label>
         <div class="form-actions"><button type="submit" class="btn-primary">Save &amp; reconnect</button><span class="save-status"></span></div>
       </form>
 
@@ -351,6 +443,14 @@
         </div>
         <div class="form-actions"><button type="submit" class="btn-primary">Save</button><span class="save-status"></span></div>
       </form>
+
+      <div class="card">
+        <h2 class="card-title">Backup</h2>
+        <p class="card-subtitle">Download the full current configuration (including secrets) as JSON, for your own records or to restore later.</p>
+        <div class="form-actions">
+          <button type="button" data-action="export-config" class="btn-secondary">Download configuration</button>
+        </div>
+      </div>
     </div>
 
     <!-- Test chat -->
@@ -388,7 +488,8 @@
       </div>
       <div id="connect-snippets" class="space-y-6"></div>
     </div>
-  </main>
+    </main>
+  </div>
 </section>
 
 <script src="/app.js" type="module"></script>

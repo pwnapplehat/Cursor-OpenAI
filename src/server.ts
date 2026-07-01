@@ -20,6 +20,7 @@ import { createEmbeddingsRouter } from "./routes/embeddings";
 import { createHealthRouter } from "./routes/health";
 import { createAdminRouter } from "./routes/admin";
 import type { GatewayDeps } from "./gateway/orchestrator";
+import { ActivityLog } from "./observability/activityLog";
 
 export interface AppInstance {
   app: Express;
@@ -36,7 +37,8 @@ export function buildApp(configStore: ConfigStore, log: Logger): AppInstance {
   const modelCatalog = new ModelCatalog(log);
   const sessionManager = new SessionManager(config, log);
   const semaphore = new Semaphore(config.maxConcurrentRuns);
-  const deps: GatewayDeps = { config, log, modelCatalog, sessionManager, semaphore };
+  const activityLog = new ActivityLog();
+  const deps: GatewayDeps = { config, log, modelCatalog, sessionManager, semaphore, activityLog };
 
   app.use(
     helmet({

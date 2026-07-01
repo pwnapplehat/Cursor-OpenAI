@@ -34,6 +34,7 @@ async function handleCompletion(deps: GatewayDeps, req: Request, res: Response):
 
   const prepared = await prepareGatewayTurn(deps, {
     apiKey: req.cursorApiKey,
+    endpoint: "/v1/completions",
     requestedModelId: body.model,
     rawMessages: messages,
     tools: undefined,
@@ -54,6 +55,7 @@ async function handleCompletion(deps: GatewayDeps, req: Request, res: Response):
     try {
       const outcome = await executeGatewayTurn(deps, prepared, {
         abortSignal: abortController.signal,
+        streaming: true,
         sink: {
           onTextDelta: (delta) => {
             sse.send(buildLegacyChunk(id, created, prepared.resolvedModelId, delta, null));
@@ -81,7 +83,7 @@ async function handleCompletion(deps: GatewayDeps, req: Request, res: Response):
 
   let outcome: RunOutcome;
   try {
-    outcome = await executeGatewayTurn(deps, prepared, { abortSignal: abortController.signal, sink: undefined });
+    outcome = await executeGatewayTurn(deps, prepared, { abortSignal: abortController.signal, sink: undefined, streaming: false });
   } finally {
     prepared.releaseSemaphore();
   }

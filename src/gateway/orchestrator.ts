@@ -10,6 +10,7 @@ import { runTurn, type RunOutcome, type RunSink } from "../cursor/runController"
 import { buildChatCompletionResponse } from "../translate/responseTranslator";
 import type { ChatCompletionMessage, ChatCompletionRequestMetadata, ChatCompletionTool } from "../types/openai";
 import { HttpError } from "../errors";
+import type { ActivityEntry, ActivityLog } from "../observability/activityLog";
 
 export interface GatewayDeps {
   config: AppConfig;
@@ -17,10 +18,13 @@ export interface GatewayDeps {
   modelCatalog: ModelCatalog;
   sessionManager: SessionManager;
   semaphore: Semaphore;
+  activityLog: ActivityLog;
 }
 
 export interface PreparedGatewayTurn {
   apiKey: string;
+  requestId: string;
+  endpoint: ActivityEntry["endpoint"];
   requestedModelId: string;
   resolvedModelId: string;
   messages: ChatCompletionMessage[];
@@ -43,6 +47,7 @@ export async function prepareGatewayTurn(
   deps: GatewayDeps,
   params: {
     apiKey: string;
+    endpoint: ActivityEntry["endpoint"];
     requestedModelId: string;
     rawMessages: ChatCompletionMessage[];
     tools: ChatCompletionTool[] | undefined;
@@ -51,7 +56,7 @@ export async function prepareGatewayTurn(
   },
 ): Promise<PreparedGatewayTurn> {
   const { config, log: baseLog, modelCatalog, sessionManager, semaphore } = deps;
-  const { apiKey, requestedModelId, rawMessages, tools, metadata, requestId } = params;
+  const { apiKey, endpoint, requestedModelId, rawMessages, tools, metadata, requestId } = params;
   const log = baseLog.child({ requestId });
 
   const { systemPrompt, rest } = extractSystemPrompt(rawMessages);
@@ -90,6 +95,8 @@ export async function prepareGatewayTurn(
 
   return {
     apiKey,
+    requestId,
+    endpoint,
     requestedModelId,
     resolvedModelId: model.id,
     messages: rest,
@@ -102,27 +109,59 @@ export async function prepareGatewayTurn(
   };
 }
 
+/** Runs the actual Cursor agent turn and records the outcome (success or failure) to the activity log, regardless of caller. */
 export async function executeGatewayTurn(
   deps: GatewayDeps,
   prepared: PreparedGatewayTurn,
-  options: { sink: RunSink | undefined; abortSignal: AbortSignal | undefined },
+  options: { sink: RunSink | undefined; abortSignal: AbortSignal | undefined; streaming: boolean },
 ): Promise<RunOutcome> {
-  const { config } = deps;
-  return prepared.handle.mutex.runExclusive(() =>
-    runTurn({
-      agent: prepared.handle.agent,
-      message: prepared.turnMessage,
-      model: { id: prepared.resolvedModelId },
-      agentMode: config.cursorAgentMode,
-      customTools: prepared.customTools,
-      toolCapture: prepared.toolCapture,
-      includeThinking: config.includeThinking,
-      timeoutMs: config.requestTimeoutMs,
-      sink: options.sink,
-      log: prepared.log,
-      abortSignal: options.abortSignal,
-    }),
-  );
+  const { config, activityLog } = deps;
+  const startedAt = Date.now();
+
+  try {
+    const outcome = await prepared.handle.mutex.runExclusive(() =>
+      runTurn({
+        agent: prepared.handle.agent,
+        message: prepared.turnMessage,
+        model: { id: prepared.resolvedModelId },
+        agentMode: config.cursorAgentMode,
+        customTools: prepared.customTools,
+        toolCapture: prepared.toolCapture,
+        includeThinking: config.includeThinking,
+        timeoutMs: config.requestTimeoutMs,
+        sink: options.sink,
+        log: prepared.log,
+        abortSignal: options.abortSignal,
+      }),
+    );
+
+    activityLog.record({
+      requestId: prepared.requestId,
+      endpoint: prepared.endpoint,
+      model: prepared.resolvedModelId,
+      streaming: options.streaming,
+      status: outcome.finishReason === "tool_calls" ? "tool_calls" : outcome.finishReason === "cancelled" ? "cancelled" : "ok",
+      durationMs: Date.now() - startedAt,
+      usage: outcome.usage,
+      errorMessage: undefined,
+      cursorAgentId: outcome.agentId,
+    });
+
+    return outcome;
+  } catch (err) {
+    activityLog.record({
+      requestId: prepared.requestId,
+      endpoint: prepared.endpoint,
+      model: prepared.resolvedModelId,
+      streaming: options.streaming,
+      status: "error",
+      durationMs: Date.now() - startedAt,
+      usage: undefined,
+      errorMessage: err instanceof Error ? err.message : String(err),
+      cursorAgentId: undefined,
+    });
+    throw err;
+  }
 }
 
 /** Registers the auto-session cache entry with the full post-turn transcript, so the next request (which will include our reply) is recognized as a continuation. */

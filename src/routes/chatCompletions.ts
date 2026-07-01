@@ -32,6 +32,7 @@ async function handleChatCompletion(deps: GatewayDeps, req: Request, res: Respon
 
   const prepared = await prepareGatewayTurn(deps, {
     apiKey: req.cursorApiKey,
+    endpoint: "/v1/chat/completions",
     requestedModelId: body.model,
     rawMessages: body.messages,
     tools: body.tools,
@@ -56,6 +57,7 @@ async function handleChatCompletion(deps: GatewayDeps, req: Request, res: Respon
     try {
       const outcome = await executeGatewayTurn(deps, prepared, {
         abortSignal: abortController.signal,
+        streaming: true,
         sink: {
           onTextDelta: (delta) => {
             sse.send(buildDeltaChunk(id, created, prepared.resolvedModelId, { content: delta }));
@@ -93,7 +95,7 @@ async function handleChatCompletion(deps: GatewayDeps, req: Request, res: Respon
 
   let outcome: RunOutcome;
   try {
-    outcome = await executeGatewayTurn(deps, prepared, { abortSignal: abortController.signal, sink: undefined });
+    outcome = await executeGatewayTurn(deps, prepared, { abortSignal: abortController.signal, sink: undefined, streaming: false });
   } finally {
     prepared.releaseSemaphore();
   }

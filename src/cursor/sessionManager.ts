@@ -20,6 +20,16 @@ export interface SessionHandle {
   newMessages: ChatCompletionMessage[];
 }
 
+export interface SessionSummary {
+  id: string;
+  type: "explicit" | "resume" | "auto" | "fresh";
+  agentId: string;
+  model: string | undefined;
+  messageCount: number;
+  createdAt: number;
+  lastUsedAt: number;
+}
+
 interface SessionEntry {
   agent: SDKAgent;
   mutex: Mutex;
@@ -149,6 +159,38 @@ export class SessionManager {
 
   stats(): { cachedAgents: number; maxCachedAgents: number } {
     return { cachedAgents: this.entries.size, maxCachedAgents: this.config.maxCachedAgents };
+  }
+
+  /** Snapshot of every cached session for the admin dashboard - newest-used first. Never exposes the agent object itself, only display-safe metadata. */
+  listSessions(): SessionSummary[] {
+    return [...this.entries.entries()]
+      .sort((a, b) => b[1].lastUsedAt - a[1].lastUsedAt)
+      .map(([key, entry]) => ({
+        id: key,
+        type: (key.split(":")[0] as SessionSummary["type"] | undefined) ?? "fresh",
+        agentId: entry.agent.agentId,
+        model: entry.agent.model?.id,
+        messageCount: entry.lastMessages.length,
+        createdAt: entry.createdAt,
+        lastUsedAt: entry.lastUsedAt,
+      }));
+  }
+
+  /** Evicts one cached session by its `id` (the same opaque string returned by `listSessions()`). Returns true if it existed. */
+  evict(id: string): boolean {
+    const entry = this.entries.get(id);
+    if (!entry) return false;
+    this.disposeEntry(id, entry, "manually evicted from admin dashboard");
+    return true;
+  }
+
+  /** Evicts every cached session. Returns how many were removed. */
+  evictAll(): number {
+    const count = this.entries.size;
+    for (const [key, entry] of [...this.entries]) {
+      this.disposeEntry(key, entry, "manually cleared from admin dashboard");
+    }
+    return count;
   }
 
   shutdown(): void {

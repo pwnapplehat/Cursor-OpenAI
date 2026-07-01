@@ -59,7 +59,7 @@ For local development with hot reload: `npm run dev` (tsx watch) instead of `npm
 This isn't a "should work" claim - Windows and Linux support were each specifically engineered for and verified with real, running instances (not just reasoning about the code), because early versions genuinely broke in platform-specific ways that reasoning alone did not catch. What was actually verified, and how:
 
 - **Windows** - developed on and continuously tested against throughout, including every endpoint, the admin dashboard, and all smoke-test suites.
-- **Linux** - verified with a real, fresh `git clone` of this repository run inside Ubuntu 24.04 (WSL2), on **Node 22.13.0 (this project's exact declared minimum) and Node 24**, exercising: `npm ci`/`typecheck`/`lint`/`build`/`test` (105/105 passing), a real chat completion, streaming, session continuity, the OpenAI tool-calling bridge round trip, the admin dashboard's static assets and API, and - critically - running the actual `start.sh` script from a clean checkout with no `node_modules`/`dist` present, exactly as a new user would.
+- **Linux** - verified with a real, fresh `git clone` of this repository run inside Ubuntu 24.04 (WSL2), on **Node 22.13.0 (this project's exact declared minimum) and Node 24**, exercising: `npm ci`/`typecheck`/`lint`/`build`/`test` (117/117 passing), a real chat completion, streaming, session continuity, the OpenAI tool-calling bridge round trip, the admin dashboard's static assets and API (including the Activity/Sessions endpoints and config export), and - critically - running the actual `start.sh` script from a clean checkout with no `node_modules`/`dist` present, exactly as a new user would.
 - **macOS** - not physically tested (no Mac was available), but every platform-specific code path is written and reasoned about the same way as the Linux one it shares a POSIX shell and Node.js runtime with: `start.sh` is plain POSIX-compatible bash verified against real bash on Linux, and `src/utils/openBrowser.ts` has a dedicated `darwin` branch (`open <url>`) parallel to the verified Linux (`xdg-open`) and Windows (`start`) branches. macOS is the one platform here where "should work" is an informed judgment rather than a demonstrated fact - please open an issue if something doesn't.
 
 Real, previously-invisible bugs this process found and fixed (each covered by a regression test so they can't silently come back):
@@ -71,11 +71,13 @@ Real, previously-invisible bugs this process found and fixed (each covered by a 
 
 ## Admin dashboard
 
-Opening the gateway in a browser (`http://localhost:8787` by default) gets you:
+Opening the gateway in a browser (`http://localhost:8787` by default) gets you a full sidebar-navigated dashboard, not just a settings page:
 
 - **First run: a 3-step setup wizard** - paste your Cursor API key (validated live against the real Cursor API before you can continue), pick a default model from your account's actual catalog with search/filter, and optionally generate a secure admin key to protect the dashboard and API. Takes under a minute.
-- **Overview** - live status (uptime, cached sessions, concurrency), your connected Cursor account, current default model.
-- **Settings** - every option in [Advanced: headless configuration](#advanced-headless-configuration) (Cursor account/key/runtime, default model, sessions, tool-calling bridge, concurrency and rate limits, server host/port, security, logging), editable from forms and applied **live, with no restart** - see [Live config reload](#live-config-reload-how) for how that actually works, including for the server's own port/host.
+- **Overview** - live status (uptime, cached sessions, concurrency), your connected Cursor account, current default model, total requests/errors/tokens, a 24-hour requests chart, a per-model request breakdown, and a preview of the most recent activity.
+- **Activity** - a live, auto-refreshing table of every request this gateway process has actually handled (endpoint, model, status, streamed or not, duration, token usage), backed by an in-memory ring buffer (`src/observability/activityLog.ts`, last 200 requests - intentionally not persisted to disk, since it's an operations view, not an analytics warehouse). Clearable from the dashboard.
+- **Sessions** - every cached Cursor agent currently keeping a multi-turn conversation alive (type - explicit/auto/resume/fresh, agent id, model, message count, created/last-used times), with a one-click **Evict** per session or **Clear all**, backed by `SessionManager.listSessions()`/`evict()`/`evictAll()`. Evicting just means that conversation's next message starts a fresh agent - nothing else is affected.
+- **Settings** - every option in [Advanced: headless configuration](#advanced-headless-configuration), including agent conversation mode (agent/plan) and auto-open-browser-on-startup (both previously env-var-only, now editable from the dashboard too), editable from forms and applied **live, with no restart** - see [Live config reload](#live-config-reload-how) for how that actually works, including for the server's own port/host. Also includes a one-click **Backup → Download configuration** button that exports the full current config (including secrets, since it's for your own authenticated backup/restore) as JSON.
 - **Test chat** - send a real message through the gateway and see the reply right in the browser, no `curl`/code needed, to confirm everything works.
 - **Connect** - copy-paste-ready snippets (curl, Python, Node, LiteLLM, Continue.dev) for whatever you're hooking up, pre-filled with this gateway's actual base URL, key, and your chosen model.
 
@@ -316,18 +318,19 @@ src/
   types/openai.ts          hand-rolled OpenAI wire types (no runtime dependency on the openai package)
   cursor/
     modelCatalog.ts         Cursor.models.list() caching + OpenAI model-id resolution
-    sessionManager.ts       agent cache: resume / explicit session / auto-session / fresh
+    sessionManager.ts       agent cache: resume / explicit session / auto-session / fresh; also lists/evicts sessions for the dashboard
     toolBridge.ts            OpenAI tools[] -> Cursor SDKCustomTool + call capture
     runController.ts         drives agent.send()/Run.stream(), text accumulation, tool-call race, cancellation
   translate/
     requestTranslator.ts     OpenAI messages[] -> the single turn text/images to send
     responseTranslator.ts    RunOutcome -> OpenAI response / SSE chunks
     usage.ts                 Cursor TokenUsage -> OpenAI usage
-  gateway/orchestrator.ts    ties the above together for both chat + legacy completions routes AND the admin test-chat endpoint
-  routes/                   Express route handlers, including admin.ts (setup wizard + dashboard API)
+  observability/activityLog.ts  in-memory ring buffer + aggregate stats (requests, errors, tokens, per-model, hourly) for the dashboard
+  gateway/orchestrator.ts    ties the above together for both chat + legacy completions routes AND the admin test-chat endpoint; records every outcome to the activity log
+  routes/                   Express route handlers, including admin.ts (setup wizard + full dashboard API: config, activity, sessions, export)
   middleware/                auth (constant-time compare), admin loopback restriction, rate limiting, request id, error handling
   utils/                     ids, SSE writer, hashing/diffing, concurrency primitives, token estimate, safe compare, browser launcher, port fallback
-public/                     the admin dashboard itself - static HTML/CSS/vanilla JS, no build step, no framework
+public/                     the admin dashboard itself - sidebar-navigated Overview/Activity/Sessions/Settings/Test chat/Connect, static HTML/CSS/vanilla JS + Chart.js (CDN), no build step, no framework
 test/                       unit tests (Cursor SDK calls mocked, no network) + one real-server integration test (serverRebind.test.ts)
 scripts/
   run-tests.mjs             portable, shell/Node-version-independent *.test.ts file discovery for `npm test` (see Cross-platform support)

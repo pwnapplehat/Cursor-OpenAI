@@ -306,7 +306,33 @@ function initLogin() {
 // Dashboard: tabs
 // ---------------------------------------------------------------------------
 
+let activeTab = "overview";
+let pollTimer = null;
+
+const TAB_REFRESH_MS = 6000;
+
+function stopPolling() {
+  if (pollTimer) {
+    clearInterval(pollTimer);
+    pollTimer = null;
+  }
+}
+
+function refreshActiveTab() {
+  if (activeTab === "overview") void renderOverview();
+  else if (activeTab === "activity") void renderActivityTab();
+  else if (activeTab === "sessions") void renderSessionsTab();
+}
+
+function startPolling() {
+  stopPolling();
+  if (activeTab === "overview" || activeTab === "activity" || activeTab === "sessions") {
+    pollTimer = setInterval(refreshActiveTab, TAB_REFRESH_MS);
+  }
+}
+
 function switchTab(name) {
+  activeTab = name;
   document.querySelectorAll("[data-tab-panel]").forEach((panel) => {
     panel.classList.toggle("hidden", panel.dataset.tabPanel !== name);
   });
@@ -314,6 +340,10 @@ function switchTab(name) {
     btn.classList.toggle("active", btn.dataset.tab === name);
   });
   if (name === "connect") renderConnectTab();
+  else if (name === "overview") void renderOverview();
+  else if (name === "activity") void renderActivityTab();
+  else if (name === "sessions") void renderSessionsTab();
+  startPolling();
 }
 
 function initTabs() {
@@ -322,6 +352,10 @@ function initTabs() {
   });
   document.querySelectorAll("[data-goto-tab]").forEach((btn) => {
     btn.addEventListener("click", () => switchTab(btn.dataset.gotoTab));
+  });
+  document.addEventListener("visibilitychange", () => {
+    if (document.hidden) stopPolling();
+    else startPolling();
   });
 }
 
@@ -354,12 +388,145 @@ function formatUptime(seconds) {
   return `${days}d ${hours % 24}h`;
 }
 
+// ---------------------------------------------------------------------------
+// Activity / sessions: shared formatting helpers
+// ---------------------------------------------------------------------------
+
+function formatRelativeTime(timestampMs) {
+  const diffSeconds = Math.max(0, Math.round((Date.now() - timestampMs) / 1000));
+  if (diffSeconds < 5) return "just now";
+  if (diffSeconds < 60) return `${diffSeconds}s ago`;
+  const minutes = Math.floor(diffSeconds / 60);
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.floor(hours / 24);
+  return `${days}d ago`;
+}
+
+function formatDurationMs(ms) {
+  if (ms < 1000) return `${Math.round(ms)}ms`;
+  return `${(ms / 1000).toFixed(1)}s`;
+}
+
+function statusBadgeHtml(status) {
+  const labels = { ok: "OK", error: "Error", tool_calls: "Tool calls", cancelled: "Cancelled" };
+  const cls = ["ok", "error", "tool_calls", "cancelled"].includes(status) ? status : "ok";
+  return `<span class="badge badge-${cls}">${labels[status] || status}</span>`;
+}
+
+function typeBadgeHtml(type) {
+  const labels = { explicit: "Explicit", auto: "Auto", resume: "Resume", fresh: "Fresh" };
+  const cls = ["explicit", "auto", "resume", "fresh"].includes(type) ? type : "fresh";
+  return `<span class="badge badge-${cls}">${labels[type] || type}</span>`;
+}
+
+function emptyStateHtml(message) {
+  return `<div class="empty-state">
+    <svg class="h-9 w-9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5.586a1 1 0 0 1 .707.293l5.414 5.414a1 1 0 0 1 .293.707V19a2 2 0 0 1-2 2Z"/></svg>
+    <p>${message}</p>
+  </div>`;
+}
+
+function skeletonRowsHtml(columns, rows = 4) {
+  const cells = Array.from({ length: columns }, () => `<td><div class="skeleton" style="height: 0.9rem; width: 100%"></div></td>`).join("");
+  return Array.from({ length: rows }, () => `<tr>${cells}</tr>`).join("");
+}
+
+function escapeHtml(value) {
+  return String(value ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
+}
+
+function activityTableHtml(entries) {
+  if (entries.length === 0) return emptyStateHtml("No requests yet. Once clients start calling this gateway, they'll show up here.");
+  const rows = entries
+    .map((e) => {
+      const tokens = e.usage ? `${e.usage.inputTokens} in / ${e.usage.outputTokens} out` : "\u2014";
+      return `<tr>
+        <td class="text-slate-400">${formatRelativeTime(e.timestamp)}</td>
+        <td>${statusBadgeHtml(e.status)}</td>
+        <td class="font-mono text-xs">${escapeHtml(e.model)}</td>
+        <td class="text-slate-400">${escapeHtml(e.endpoint)}</td>
+        <td>${e.streaming ? "Yes" : "No"}</td>
+        <td>${formatDurationMs(e.durationMs)}</td>
+        <td class="text-slate-400">${tokens}</td>
+      </tr>`;
+    })
+    .join("");
+  return `<table class="data-table">
+    <thead><tr><th>Time</th><th>Status</th><th>Model</th><th>Endpoint</th><th>Streamed</th><th>Duration</th><th>Tokens</th></tr></thead>
+    <tbody>${rows}</tbody>
+  </table>`;
+}
+
+let requestsChart = null;
+
+function renderRequestsChart(hourlyBuckets) {
+  const canvas = document.getElementById("requests-chart");
+  if (!canvas || typeof Chart === "undefined") return;
+  const labels = hourlyBuckets.map((b) => new Date(b.hourStart).toLocaleTimeString([], { hour: "numeric" }));
+  const data = hourlyBuckets.map((b) => b.count);
+
+  if (requestsChart) {
+    requestsChart.data.labels = labels;
+    requestsChart.data.datasets[0].data = data;
+    requestsChart.update();
+    return;
+  }
+
+  requestsChart = new Chart(canvas.getContext("2d"), {
+    type: "bar",
+    data: {
+      labels,
+      datasets: [
+        {
+          data,
+          backgroundColor: "rgba(34, 197, 94, 0.55)",
+          hoverBackgroundColor: "rgba(34, 197, 94, 0.85)",
+          borderRadius: 3,
+          maxBarThickness: 18,
+        },
+      ],
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: { legend: { display: false }, tooltip: { callbacks: { title: (items) => items[0].label } } },
+      scales: {
+        x: { grid: { display: false }, ticks: { color: "#94a3b8", font: { size: 10 } } },
+        y: { beginAtZero: true, ticks: { precision: 0, color: "#94a3b8", font: { size: 10 } }, grid: { color: "rgba(51, 65, 85, 0.5)" } },
+      },
+    },
+  });
+}
+
+function renderModelBreakdown(requestsByModel) {
+  const container = document.getElementById("model-breakdown");
+  const entries = Object.entries(requestsByModel).sort((a, b) => b[1] - a[1]);
+  if (entries.length === 0) {
+    container.innerHTML = `<p class="text-sm text-slate-500">No requests yet.</p>`;
+    return;
+  }
+  const max = entries[0][1];
+  container.innerHTML = entries
+    .map(([model, count]) => {
+      const pct = Math.max(4, Math.round((count / max) * 100));
+      return `<div class="model-bar-row">
+        <div class="flex items-center justify-between text-xs">
+          <span class="font-mono text-slate-300 truncate">${escapeHtml(model)}</span>
+          <span class="text-slate-500">${count}</span>
+        </div>
+        <div class="model-bar-track"><div class="model-bar-fill" style="width:${pct}%"></div></div>
+      </div>`;
+    })
+    .join("");
+}
+
 async function renderOverview() {
   const container = document.getElementById("overview-cards");
-  container.innerHTML = "";
-  container.appendChild(statCard("Status", "Loading\u2026"));
+  if (container.children.length === 0) container.appendChild(statCard("Status", "Loading\u2026"));
 
-  const [health, account] = await Promise.allSettled([apiPublic("/health"), api("/account")]);
+  const [health, account, activity] = await Promise.allSettled([apiPublic("/health"), api("/account"), api("/activity")]);
 
   container.innerHTML = "";
   if (health.status === "fulfilled") {
@@ -371,11 +538,120 @@ async function renderOverview() {
     container.appendChild(statCard("Status", "Unreachable"));
   }
 
+  if (activity.status === "fulfilled") {
+    const { stats } = activity.value;
+    container.appendChild(statCard("Total requests", stats.totalRequests));
+    container.appendChild(statCard("Errors", stats.totalErrors));
+    container.appendChild(statCard("Tokens (in / out)", `${stats.totalPromptTokens} / ${stats.totalCompletionTokens}`));
+  }
+
   if (account.status === "fulfilled" && account.value.account) {
     container.appendChild(statCard("Cursor account", account.value.account.userEmail || account.value.account.apiKeyName || "\u2014"));
   }
   container.appendChild(statCard("Default model", state.config.defaultModel || "\u2014"));
   container.appendChild(statCard("Key mode", state.config.cursorKeyMode));
+
+  if (activity.status === "fulfilled") {
+    renderRequestsChart(activity.value.stats.hourlyBuckets);
+    renderModelBreakdown(activity.value.stats.requestsByModel);
+    document.getElementById("overview-activity-table").innerHTML = activityTableHtml(activity.value.entries.slice(0, 6));
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Dashboard: activity tab
+// ---------------------------------------------------------------------------
+
+async function renderActivityTab() {
+  const container = document.getElementById("activity-table-full");
+  if (!container.dataset.loaded) {
+    container.innerHTML = `<table class="data-table"><tbody>${skeletonRowsHtml(7, 6)}</tbody></table>`;
+  }
+  try {
+    const result = await api("/activity");
+    container.innerHTML = activityTableHtml(result.entries);
+    container.dataset.loaded = "1";
+  } catch (err) {
+    container.innerHTML = emptyStateHtml(`Could not load activity: ${escapeHtml(err.message)}`);
+  }
+}
+
+function initActivityTab() {
+  document.querySelector('[data-action="refresh-activity"]').addEventListener("click", () => renderActivityTab());
+  document.querySelector('[data-action="clear-activity"]').addEventListener("click", async () => {
+    if (!confirm("Clear the in-memory activity log? This does not affect any running conversations.")) return;
+    try {
+      await api("/activity", { method: "DELETE" });
+      await renderActivityTab();
+      toast("Activity log cleared.");
+    } catch (err) {
+      toast(err.message, "error");
+    }
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Dashboard: sessions tab
+// ---------------------------------------------------------------------------
+
+function sessionsTableHtml(sessions) {
+  if (sessions.length === 0) return emptyStateHtml("No cached sessions right now. They'll appear here as soon as a multi-turn conversation starts.");
+  const rows = sessions
+    .map(
+      (s) => `<tr>
+        <td>${typeBadgeHtml(s.type)}</td>
+        <td class="font-mono text-xs">${escapeHtml(s.agentId)}</td>
+        <td class="font-mono text-xs">${escapeHtml(s.model || "\u2014")}</td>
+        <td>${s.messageCount}</td>
+        <td class="text-slate-400">${formatRelativeTime(s.createdAt)}</td>
+        <td class="text-slate-400">${formatRelativeTime(s.lastUsedAt)}</td>
+        <td><button class="btn-secondary text-xs text-danger" data-evict-session="${encodeURIComponent(s.id)}" type="button">Evict</button></td>
+      </tr>`,
+    )
+    .join("");
+  return `<table class="data-table">
+    <thead><tr><th>Type</th><th>Agent ID</th><th>Model</th><th>Messages</th><th>Created</th><th>Last used</th><th></th></tr></thead>
+    <tbody>${rows}</tbody>
+  </table>`;
+}
+
+async function renderSessionsTab() {
+  const container = document.getElementById("sessions-table");
+  if (!container.dataset.loaded) {
+    container.innerHTML = `<table class="data-table"><tbody>${skeletonRowsHtml(7, 3)}</tbody></table>`;
+  }
+  try {
+    const result = await api("/sessions");
+    container.innerHTML = sessionsTableHtml(result.sessions);
+    container.dataset.loaded = "1";
+    container.querySelectorAll("[data-evict-session]").forEach((btn) => {
+      btn.addEventListener("click", async () => {
+        try {
+          await api(`/sessions/${btn.dataset.evictSession}`, { method: "DELETE" });
+          await renderSessionsTab();
+          toast("Session evicted.");
+        } catch (err) {
+          toast(err.message, "error");
+        }
+      });
+    });
+  } catch (err) {
+    container.innerHTML = emptyStateHtml(`Could not load sessions: ${escapeHtml(err.message)}`);
+  }
+}
+
+function initSessionsTab() {
+  document.querySelector('[data-action="refresh-sessions"]').addEventListener("click", () => renderSessionsTab());
+  document.querySelector('[data-action="clear-sessions"]').addEventListener("click", async () => {
+    if (!confirm("Evict every cached session? Every ongoing conversation will start fresh on its next message.")) return;
+    try {
+      const result = await api("/sessions", { method: "DELETE" });
+      await renderSessionsTab();
+      toast(`Cleared ${result.evicted} session(s).`);
+    } catch (err) {
+      toast(err.message, "error");
+    }
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -423,6 +699,7 @@ function populateSettingsForms() {
   setField("autoSessionEnabled", c.autoSessionEnabled, true);
   setField("sessionTtlMinutes", msToMinutes(c.sessionTtlMs));
   setField("maxCachedAgents", c.maxCachedAgents);
+  setField("cursorAgentMode", c.cursorAgentMode);
   setField("includeThinking", c.includeThinking, true);
   setField("toolBridgeEnabled", c.toolBridgeEnabled, true);
   setField("maxConcurrentRuns", c.maxConcurrentRuns);
@@ -432,6 +709,7 @@ function populateSettingsForms() {
   setField("host", c.host);
   setField("port", c.port);
   setField("corsOrigin", c.corsOrigin);
+  setField("autoOpenBrowser", c.autoOpenBrowser, true);
   setField("authKeyMasked", c.authKey || "(none set - dashboard and API open to anyone with network access)");
   setField("adminAllowRemote", c.adminAllowRemote, true);
   setField("logLevel", c.logLevel);
@@ -461,6 +739,7 @@ function initSettingsForms() {
       maxCachedAgents: Number(getField(forms.sessions, "maxCachedAgents").value),
     }),
     behavior: () => ({
+      cursorAgentMode: getField(forms.behavior, "cursorAgentMode").value,
       includeThinking: getField(forms.behavior, "includeThinking").checked,
       toolBridgeEnabled: getField(forms.behavior, "toolBridgeEnabled").checked,
     }),
@@ -474,6 +753,7 @@ function initSettingsForms() {
       host: getField(forms.server, "host").value.trim(),
       port: Number(getField(forms.server, "port").value),
       corsOrigin: getField(forms.server, "corsOrigin").value.trim() || "*",
+      autoOpenBrowser: getField(forms.server, "autoOpenBrowser").checked,
     }),
     security: () => ({ adminAllowRemote: getField(forms.security, "adminAllowRemote").checked }),
     logging: () => ({ logLevel: getField(forms.logging, "logLevel").value, logPretty: getField(forms.logging, "logPretty").checked }),
@@ -546,6 +826,31 @@ function initSettingsForms() {
 
   document.querySelector('[data-action="copy-revealed-key"]').addEventListener("click", () => {
     copyText(document.getElementById("revealed-key").textContent);
+  });
+
+  document.querySelector('[data-action="export-config"]').addEventListener("click", async (event) => {
+    const button = event.currentTarget;
+    setBusy(button, true, "Preparing\u2026");
+    try {
+      const headers = {};
+      if (state.adminKey) headers["Authorization"] = `Bearer ${state.adminKey}`;
+      const res = await fetch("/api/admin/config/export", { headers });
+      if (!res.ok) throw new Error(`Export failed (${res.status})`);
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = "cursor-openai-gateway-settings.json";
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
+      toast("Configuration downloaded.");
+    } catch (err) {
+      toast(err.message, "error");
+    } finally {
+      setBusy(button, false);
+    }
   });
 }
 
@@ -725,8 +1030,7 @@ async function bootDashboard() {
     state.config = await api("/config");
     await loadModels();
     populateSettingsForms();
-    document.getElementById("logout-btn").classList.toggle("hidden", !state.config.authKey);
-    await renderOverview();
+    document.querySelectorAll("#logout-btn, #logout-btn-mobile").forEach((btn) => btn.classList.toggle("hidden", !state.config.authKey));
     switchTab("overview");
   } catch (err) {
     toast(err.message, "error");
@@ -740,11 +1044,14 @@ async function bootDashboard() {
 }
 
 function initLogout() {
-  document.getElementById("logout-btn").addEventListener("click", () => {
-    state.adminKey = "";
-    localStorage.removeItem(STORAGE_KEY);
-    sessionStorage.removeItem(STORAGE_KEY);
-    showView("login");
+  document.querySelectorAll("#logout-btn, #logout-btn-mobile").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      stopPolling();
+      state.adminKey = "";
+      localStorage.removeItem(STORAGE_KEY);
+      sessionStorage.removeItem(STORAGE_KEY);
+      showView("login");
+    });
   });
 }
 
@@ -759,6 +1066,8 @@ async function init() {
   initLogin();
   initTabs();
   initSettingsForms();
+  initActivityTab();
+  initSessionsTab();
   initTestChat();
   initLogout();
   initCopyTargets();

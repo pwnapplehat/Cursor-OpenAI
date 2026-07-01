@@ -199,6 +199,41 @@ export function createAdminRouter(deps: GatewayDeps, configStore: ConfigStore): 
     res.json({ ok: true });
   });
 
+  admin.get("/activity", (_req, res) => {
+    const { activityLog } = deps;
+    res.json({ entries: activityLog.recent(), stats: activityLog.stats() });
+  });
+
+  admin.delete("/activity", (_req, res) => {
+    deps.activityLog.clear();
+    res.json({ ok: true });
+  });
+
+  admin.get("/sessions", (_req, res) => {
+    res.json({ sessions: deps.sessionManager.listSessions() });
+  });
+
+  admin.delete("/sessions/:id", (req, res, next) => {
+    try {
+      const id = decodeURIComponent(req.params["id"] ?? "");
+      const evicted = deps.sessionManager.evict(id);
+      if (!evicted) throw HttpError.notFound(`No cached session with id "${id}"`);
+      res.json({ ok: true });
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  admin.delete("/sessions", (_req, res) => {
+    const count = deps.sessionManager.evictAll();
+    res.json({ ok: true, evicted: count });
+  });
+
+  admin.get("/config/export", (_req, res) => {
+    res.setHeader("Content-Disposition", 'attachment; filename="cursor-openai-gateway-settings.json"');
+    res.json(configStore.config);
+  });
+
   admin.get("/models", (_req, res, next) => {
     void (async () => {
       try {
@@ -233,6 +268,7 @@ export function createAdminRouter(deps: GatewayDeps, configStore: ConfigStore): 
 
         const prepared = await prepareGatewayTurn(deps, {
           apiKey: config.cursorApiKey,
+          endpoint: "/api/admin/test-chat",
           requestedModelId,
           rawMessages,
           tools: undefined,
@@ -242,7 +278,7 @@ export function createAdminRouter(deps: GatewayDeps, configStore: ConfigStore): 
 
         let outcome: RunOutcome;
         try {
-          outcome = await executeGatewayTurn(deps, prepared, { sink: undefined, abortSignal: undefined });
+          outcome = await executeGatewayTurn(deps, prepared, { sink: undefined, abortSignal: undefined, streaming: false });
         } finally {
           prepared.releaseSemaphore();
         }
