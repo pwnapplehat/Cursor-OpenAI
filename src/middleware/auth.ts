@@ -1,6 +1,7 @@
 import type { NextFunction, Request, Response } from "express";
 import type { AppConfig } from "../config";
 import { HttpError } from "../errors";
+import { safeCompare } from "../utils/safeCompare";
 
 function extractBearerToken(req: Request): string | undefined {
   const header = req.header("authorization");
@@ -39,7 +40,7 @@ export function authMiddleware(config: AppConfig) {
     }
 
     if (config.authKey) {
-      if (!bearer || bearer !== config.authKey) {
+      if (!bearer || !safeCompare(bearer, config.authKey)) {
         next(HttpError.unauthorized("Invalid or missing gateway API key."));
         return;
       }

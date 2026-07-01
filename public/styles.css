@@ -1,0 +1,357 @@
+/* Hand-written component styles. Tailwind is loaded via the browser CDN build,
+   which only compiles utility classes it finds directly in index.html - it can't
+   process `@apply` in a separate stylesheet without a build step, so the small
+   set of repeated "components" used across the dashboard are defined here as
+   plain CSS instead, using the same palette as the Tailwind config. */
+
+:root {
+  --bg: #0f172a;
+  --surface: #1e293b;
+  --border: #334155;
+  --accent: #22c55e;
+  --accent-dark: #16a34a;
+  --danger: #ef4444;
+  --text: #f8fafc;
+  --muted: #94a3b8;
+}
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--border) transparent;
+}
+*::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+*::-webkit-scrollbar-thumb {
+  background-color: var(--border);
+  border-radius: 999px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+.hidden {
+  display: none !important;
+}
+
+.input-field {
+  width: 100%;
+  background-color: var(--bg);
+  border: 1px solid var(--border);
+  color: var(--text);
+  border-radius: 0.5rem;
+  padding: 0.55rem 0.75rem;
+  font-size: 0.875rem;
+  outline: none;
+  transition: border-color 150ms ease, box-shadow 150ms ease;
+}
+.input-field::placeholder {
+  color: #64748b;
+}
+.input-field:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(34, 197, 94, 0.15);
+}
+.input-field:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.btn-primary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+  background-color: var(--accent);
+  color: #052e14;
+  font-weight: 600;
+  font-size: 0.875rem;
+  padding: 0.6rem 1rem;
+  border-radius: 0.5rem;
+  border: none;
+  cursor: pointer;
+  transition: background-color 150ms ease, transform 150ms ease, opacity 150ms ease;
+}
+.btn-primary:hover {
+  background-color: var(--accent-dark);
+}
+.btn-primary:active {
+  transform: translateY(1px);
+}
+.btn-primary:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+.btn-primary:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.btn-secondary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+  background-color: transparent;
+  color: var(--text);
+  font-weight: 500;
+  font-size: 0.875rem;
+  padding: 0.6rem 1rem;
+  border-radius: 0.5rem;
+  border: 1px solid var(--border);
+  cursor: pointer;
+  transition: border-color 150ms ease, background-color 150ms ease;
+}
+.btn-secondary:hover {
+  border-color: var(--accent);
+  background-color: rgba(34, 197, 94, 0.08);
+}
+.btn-secondary:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.btn-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 2.25rem;
+  width: 2.25rem;
+  border-radius: 0.5rem;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  transition: color 150ms ease, border-color 150ms ease;
+  flex-shrink: 0;
+}
+.btn-icon:hover {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
+.card {
+  background-color: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 0.75rem;
+  padding: 1.5rem;
+}
+.card-title {
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--text);
+}
+.card-subtitle {
+  font-size: 0.8125rem;
+  color: var(--muted);
+  margin-top: 0.25rem;
+}
+
+.field-label {
+  display: block;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  color: #cbd5e1;
+  margin-bottom: 0.35rem;
+}
+
+.toggle-row {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  font-size: 0.875rem;
+  color: #cbd5e1;
+  cursor: pointer;
+  user-select: none;
+}
+.toggle-row input {
+  accent-color: var(--accent);
+  height: 1rem;
+  width: 1rem;
+  flex-shrink: 0;
+}
+
+.form-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin-top: 1.25rem;
+  padding-top: 1.25rem;
+  border-top: 1px solid var(--border);
+}
+.save-status {
+  font-size: 0.8125rem;
+  color: var(--muted);
+  transition: color 150ms ease;
+}
+.save-status.ok {
+  color: var(--accent);
+}
+.save-status.error {
+  color: var(--danger);
+}
+
+.tab-btn {
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: var(--muted);
+  padding: 0.5rem 0.85rem;
+  border-radius: 0.5rem;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: color 150ms ease, background-color 150ms ease;
+}
+.tab-btn:hover {
+  color: var(--text);
+}
+.tab-btn.active {
+  color: var(--text);
+  background-color: rgba(148, 163, 184, 0.12);
+}
+
+.step-dot {
+  height: 0.5rem;
+  width: 0.5rem;
+  border-radius: 999px;
+  background-color: var(--border);
+  transition: background-color 150ms ease;
+}
+.step-dot.active {
+  background-color: var(--accent);
+}
+.step-dot.done {
+  background-color: var(--accent-dark);
+}
+
+.model-list {
+  max-height: 14rem;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  padding: 0.25rem;
+}
+.model-option {
+  display: flex;
+  flex-direction: column;
+  padding: 0.55rem 0.7rem;
+  border-radius: 0.4rem;
+  cursor: pointer;
+  transition: background-color 150ms ease;
+}
+.model-option:hover {
+  background-color: rgba(148, 163, 184, 0.1);
+}
+.model-option.selected {
+  background-color: rgba(34, 197, 94, 0.14);
+  outline: 1px solid var(--accent);
+}
+.model-option .model-id {
+  font-family: "Fira Code", monospace;
+  font-size: 0.8125rem;
+  color: var(--text);
+}
+.model-option .model-desc {
+  font-size: 0.75rem;
+  color: var(--muted);
+  margin-top: 0.1rem;
+}
+
+.stat-card {
+  background-color: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 0.75rem;
+  padding: 1.1rem;
+}
+.stat-label {
+  font-size: 0.75rem;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.stat-value {
+  font-size: 1.35rem;
+  font-weight: 600;
+  color: var(--text);
+  margin-top: 0.35rem;
+  font-family: "Fira Code", monospace;
+}
+
+.chat-bubble {
+  max-width: 85%;
+  padding: 0.65rem 0.9rem;
+  border-radius: 0.75rem;
+  font-size: 0.875rem;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.chat-bubble.user {
+  align-self: flex-end;
+  background-color: var(--accent);
+  color: #052e14;
+  border-bottom-right-radius: 0.2rem;
+}
+.chat-bubble.assistant {
+  align-self: flex-start;
+  background-color: var(--bg);
+  border: 1px solid var(--border);
+  color: var(--text);
+  border-bottom-left-radius: 0.2rem;
+}
+.chat-bubble.reasoning {
+  align-self: flex-start;
+  background-color: transparent;
+  border: 1px dashed var(--border);
+  color: var(--muted);
+  font-style: italic;
+  font-size: 0.8rem;
+}
+.chat-row {
+  display: flex;
+  flex-direction: column;
+}
+
+.toast {
+  background-color: var(--surface);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--accent);
+  color: var(--text);
+  border-radius: 0.5rem;
+  padding: 0.75rem 1rem;
+  font-size: 0.875rem;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.4);
+  min-width: 16rem;
+  animation: toast-in 200ms ease;
+}
+.toast.error {
+  border-left-color: var(--danger);
+}
+@keyframes toast-in {
+  from {
+    opacity: 0;
+    transform: translateY(-6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+pre.snippet {
+  background-color: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  padding: 1rem;
+  font-family: "Fira Code", monospace;
+  font-size: 0.8rem;
+  overflow-x: auto;
+  color: #e2e8f0;
+}

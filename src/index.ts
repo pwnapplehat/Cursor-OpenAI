@@ -1,7 +1,15 @@
+import type { Server } from "node:http";
 import { Cursor } from "@cursor/sdk";
 import { loadConfig, ConfigError } from "./config";
+import { ConfigStore } from "./configStore";
 import { createLogger, maskSecret } from "./logger";
 import { buildApp } from "./server";
+import { openBrowser } from "./utils/openBrowser";
+
+function dashboardUrl(host: string, port: number): string {
+  const displayHost = host === "0.0.0.0" || host === "::" ? "localhost" : host;
+  return `http://${displayHost}:${port}`;
+}
 
 async function main(): Promise<void> {
   let config;
@@ -16,12 +24,14 @@ async function main(): Promise<void> {
   }
 
   const log = createLogger(config);
+  const configStore = new ConfigStore(config, log);
+
   log.info(
     {
       runtime: config.cursorRuntime,
       keyMode: config.cursorKeyMode,
       defaultModel: config.defaultModel,
-      cursorApiKey: config.cursorApiKey ? maskSecret(config.cursorApiKey) : "(passthrough mode)",
+      cursorApiKey: config.cursorApiKey ? maskSecret(config.cursorApiKey) : "(not configured yet)",
       sessionsEnabled: config.sessionsEnabled,
       autoSessionEnabled: config.autoSessionEnabled,
       toolBridgeEnabled: config.toolBridgeEnabled,
@@ -31,7 +41,12 @@ async function main(): Promise<void> {
     "starting cursor-openai-gateway",
   );
 
-  if (config.cursorKeyMode === "server" && config.cursorApiKey) {
+  if (!configStore.setupComplete) {
+    log.warn(
+      { dashboard: dashboardUrl(config.host, config.port) },
+      "no Cursor API key configured yet - open the dashboard above to finish setup (or set CURSOR_API_KEY in .env for a headless deployment)",
+    );
+  } else if (config.cursorKeyMode === "server" && config.cursorApiKey) {
     try {
       const me = await Cursor.me({ apiKey: config.cursorApiKey });
       log.info({ apiKeyName: me.apiKeyName, userEmail: me.userEmail }, "verified Cursor API key on startup");
@@ -44,11 +59,41 @@ async function main(): Promise<void> {
     }
   }
 
-  const { app, sessionManager } = buildApp(config, log);
+  const { app, sessionManager } = buildApp(configStore, log);
 
-  const server = app.listen(config.port, config.host, () => {
-    log.info({ host: config.host, port: config.port }, "cursor-openai-gateway listening");
+  function listen(port: number, host: string): Promise<Server> {
+    return new Promise((resolve, reject) => {
+      const candidate = app.listen(port, host);
+      candidate.once("listening", () => resolve(candidate));
+      candidate.once("error", (err) => reject(err));
+    });
+  }
+
+  let server = await listen(config.port, config.host);
+  log.info({ host: config.host, port: config.port, dashboard: dashboardUrl(config.host, config.port) }, "cursor-openai-gateway listening");
+
+  configStore.onServerRebindNeeded(async (newPort, newHost) => {
+    log.info({ newPort, newHost }, "rebinding HTTP server after a port/host change from the admin dashboard");
+    const newServer = await listen(newPort, newHost);
+    const oldServer = server;
+    server = newServer;
+    // Deliberately not awaited: the request that triggered this rebind (the
+    // PATCH /api/admin/config call itself) is still being served by
+    // `oldServer` and hasn't sent its response yet - `close()`'s callback
+    // only fires once every open connection ends, so awaiting it here would
+    // deadlock waiting for a response that can only be sent once this
+    // handler (and the update() call it's inside) returns. Let it drain in
+    // the background instead.
+    oldServer.close((err) => {
+      if (err) log.warn({ err }, "error while closing the previous HTTP server after a rebind");
+      else log.debug("previous HTTP server closed after rebind");
+    });
+    log.info({ newPort, newHost }, "HTTP server rebind complete (new listener is up; old one is draining in the background)");
   });
+
+  if (config.autoOpenBrowser) {
+    openBrowser(dashboardUrl(config.host, config.port), log);
+  }
 
   let shuttingDown = false;
   const shutdown = (signal: string): void => {

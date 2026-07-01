@@ -3,8 +3,11 @@ import os from "node:os";
 import path from "node:path";
 import type { AppConfig } from "../../src/config";
 
-/** Builds a fully-populated `AppConfig` for tests, with sane defaults and a fresh scratch workdir per call. */
+/** Builds a fully-populated `AppConfig` for tests, with sane defaults and a fresh, uniquely-named scratch data dir per call (isolating any ConfigStore settings.json writes too - see ConfigStore's constructor). */
 export function makeTestConfig(overrides: Partial<AppConfig> = {}): AppConfig {
+  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), "cursor-gw-test-"));
+  const workdirRoot = path.join(dataDir, "workspaces");
+  fs.mkdirSync(workdirRoot, { recursive: true });
   return {
     cursorApiKey: "test-key",
     cursorKeyMode: "server",
@@ -14,7 +17,7 @@ export function makeTestConfig(overrides: Partial<AppConfig> = {}): AppConfig {
     authKey: undefined,
     corsOrigin: "*",
     cursorRuntime: "local",
-    cursorWorkdirRoot: fs.mkdtempSync(path.join(os.tmpdir(), "cursor-gw-test-")),
+    cursorWorkdirRoot: workdirRoot,
     cursorAgentMode: "agent",
     defaultModel: "composer-2.5",
     includeThinking: true,
@@ -29,6 +32,8 @@ export function makeTestConfig(overrides: Partial<AppConfig> = {}): AppConfig {
     rateLimitMax: 120,
     logLevel: "silent",
     logPretty: false,
+    autoOpenBrowser: false,
+    adminAllowRemote: false,
     ...overrides,
   };
 }

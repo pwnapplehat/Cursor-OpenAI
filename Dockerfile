@@ -10,11 +10,14 @@ RUN npm run build
 
 FROM node:22-alpine AS runtime
 ENV NODE_ENV=production
+# No desktop/browser exists inside the container - never try to spawn one.
+ENV AUTO_OPEN_BROWSER=false
 WORKDIR /app
 
 COPY package.json package-lock.json* ./
 RUN npm ci --omit=dev && npm cache clean --force
 COPY --from=builder /app/dist ./dist
+COPY public ./public
 
 RUN mkdir -p /app/.cursor-gateway/workspaces && chown -R node:node /app
 USER node

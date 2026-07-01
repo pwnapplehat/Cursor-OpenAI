@@ -3,8 +3,13 @@ import type { AppConfig } from "../config";
 
 export function buildRateLimiter(config: AppConfig) {
   return rateLimit({
+    // windowMs is fixed for the lifetime of this middleware instance (an
+    // express-rate-limit constraint - only `limit` supports a per-request
+    // function). Changing RATE_LIMIT_WINDOW_MS from the admin dashboard is
+    // persisted immediately but needs a restart to take effect; the request
+    // ceiling itself (`limit`) is read live on every request.
     windowMs: config.rateLimitWindowMs,
-    limit: config.rateLimitMax,
+    limit: () => config.rateLimitMax,
     standardHeaders: true,
     legacyHeaders: false,
     keyGenerator: (req) => req.cursorApiKey ?? req.ip ?? "anonymous",

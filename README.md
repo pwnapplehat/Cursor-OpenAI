@@ -8,13 +8,16 @@ OpenAI-compatible client            cursor-openai-gateway                 Cursor
 LiteLLM, Continue, curl...)         (this project)                       (your CURSOR_API_KEY)
 ```
 
-Built directly against the real `@cursor/sdk` v1.0.x type definitions (not guesswork) and verified end-to-end against the live Cursor API - streaming, multi-turn sessions, and OpenAI-style tool/function calling all actually work, not just on paper. See [Verification](#verification) for the real test transcripts.
+Comes with a built-in **web dashboard** (a setup wizard on first run, then live settings, a test-chat box, and ready-to-paste connection snippets) so you don't need to touch a config file, a terminal command, or a single line of code to use it - see [Admin dashboard](#admin-dashboard). Everything it does is also available headlessly via environment variables for Docker/CI/servers - see [Advanced: headless configuration](#advanced-headless-configuration).
+
+Built directly against the real `@cursor/sdk` v1.0.x type definitions (not guesswork) and verified end-to-end against the live Cursor API - streaming, multi-turn sessions, OpenAI-style tool/function calling, and the dashboard's own setup/config API all actually work, not just on paper. See [Testing and verification](#testing-and-verification) for the real test transcripts.
 
 ## Table of contents
 
-- [Features](#features)
 - [Quick start](#quick-start)
-- [Configuration](#configuration)
+- [Admin dashboard](#admin-dashboard)
+- [Features](#features)
+- [Advanced: headless configuration](#advanced-headless-configuration)
 - [Endpoints](#endpoints)
 - [Client examples](#client-examples)
 - [Sessions and multi-turn conversations](#sessions-and-multi-turn-conversations)
@@ -29,8 +32,50 @@ Built directly against the real `@cursor/sdk` v1.0.x type definitions (not guess
 - [Architecture](#architecture)
 - [License](#license)
 
+## Quick start
+
+**Requires [Node.js](https://nodejs.org) 18.17 or newer** (installing Node is the only prerequisite - everything else is handled for you).
+
+**Windows:** double-click `start.bat`.
+**Mac/Linux:** open a terminal in this folder and run `chmod +x start.sh && ./start.sh` (only need `chmod` once).
+
+Either way, the script installs dependencies, builds the project, starts the gateway, and opens your browser to the setup wizard automatically - paste in a Cursor API key (get one from [Cursor Dashboard -> Integrations](https://cursor.com/dashboard/integrations)), pick a default model, and you're done. No `.env` file, no terminal commands, no code required.
+
+Prefer the command line? Same result:
+
+```bash
+npm install
+npm run build
+npm start
+```
+
+This also opens the dashboard in your browser (set `AUTO_OPEN_BROWSER=false` to disable that). See [Admin dashboard](#admin-dashboard) below for what you can do there, or [Advanced: headless configuration](#advanced-headless-configuration) to skip the wizard entirely and configure everything via a `.env` file instead.
+
+For local development with hot reload: `npm run dev` (tsx watch) instead of `npm run build && npm start`.
+
+## Admin dashboard
+
+Opening the gateway in a browser (`http://localhost:8787` by default) gets you:
+
+- **First run: a 3-step setup wizard** - paste your Cursor API key (validated live against the real Cursor API before you can continue), pick a default model from your account's actual catalog with search/filter, and optionally generate a secure admin key to protect the dashboard and API. Takes under a minute.
+- **Overview** - live status (uptime, cached sessions, concurrency), your connected Cursor account, current default model.
+- **Settings** - every option in [Advanced: headless configuration](#advanced-headless-configuration) (Cursor account/key/runtime, default model, sessions, tool-calling bridge, concurrency and rate limits, server host/port, security, logging), editable from forms and applied **live, with no restart** - see [Live config reload](#live-config-reload-how) for how that actually works, including for the server's own port/host.
+- **Test chat** - send a real message through the gateway and see the reply right in the browser, no `curl`/code needed, to confirm everything works.
+- **Connect** - copy-paste-ready snippets (curl, Python, Node, LiteLLM, Continue.dev) for whatever you're hooking up, pre-filled with this gateway's actual base URL, key, and your chosen model.
+
+Settings changed from the dashboard are saved to `.cursor-gateway/settings.json` (git-ignored, created automatically) and take precedence over `.env` on the next boot, so the two approaches don't fight each other - use whichever is convenient at the time.
+
+### Live config reload (how)
+
+Every setting change from the dashboard takes effect immediately on the running process - no restart, ever, including changing the server's own `PORT`/`HOST` (the gateway opens a new listener on the new address, drains the old one in the background, and the dashboard follows you to the new URL automatically). This works because `ConfigStore` (`src/configStore.ts`) owns one shared, mutable config object that every other module already reads live on each request; updating it and persisting it to disk is enough. The one exception is `RATE_LIMIT_WINDOW_MS` (the rate-limit *window size*, not the request count within it) - `express-rate-limit` fixes that at startup, so changing it is saved but needs a restart to take effect; everything else, including the request-count ceiling itself, is live.
+
+### Dashboard security
+
+The dashboard and its API (`/api/admin/*`) only accept requests from this machine (127.0.0.1/::1) by default, independent of whether you set an admin key - so exposing the OpenAI endpoints on your LAN (`HOST=0.0.0.0`) doesn't also expose configuration to that network. See [Security](#security) for the full picture, including the admin-key/loopback interaction and how secrets are masked.
+
 ## Features
 
+- **A built-in setup wizard and admin dashboard** - see [Admin dashboard](#admin-dashboard) above. Nothing below requires it, but it's there so non-technical users never have to touch a terminal.
 - **`/v1/chat/completions`** - streaming (SSE) and non-streaming, system/user/assistant/tool messages, images (`image_url`, including base64 data URLs), usage accounting.
 - **`/v1/completions`** - legacy text-completion endpoint, implemented as a thin adapter over the chat pipeline.
 - **`/v1/models`** / **`/v1/models/:id`** - live catalog pulled from `Cursor.models.list()` for the authenticated key, including aliases.
@@ -44,16 +89,16 @@ Built directly against the real `@cursor/sdk` v1.0.x type definitions (not guess
 - **Client-disconnect handling** - aborts the underlying Cursor run when the calling HTTP client disconnects mid-stream, so you don't pay for work nobody reads.
 - Structured logging (pino, with secrets redacted), rate limiting, Helmet security headers, graceful shutdown, Docker image, and a real end-to-end smoke test suite.
 
-## Quick start
+## Advanced: headless configuration
 
-Requires Node.js >= 18.17.
+Everything the dashboard does is also configurable via environment variables - useful for Docker, CI, or anyone who just prefers editing a file. This is exactly equivalent to the dashboard; use either, or both (dashboard changes are saved separately and take precedence, so they won't be clobbered by a stale `.env`).
 
 ```bash
 npm install
 cp .env.example .env
 ```
 
-Edit `.env` and set `CURSOR_API_KEY` to a user API key from [Cursor Dashboard -> Integrations](https://cursor.com/dashboard/integrations), or a team service-account key from Team Settings -> Service accounts.
+Edit `.env` and set `CURSOR_API_KEY` to a user API key from [Cursor Dashboard -> Integrations](https://cursor.com/dashboard/integrations), or a team service-account key from Team Settings -> Service accounts. Leaving it blank is fine too - the gateway boots anyway and serves the setup wizard until it's configured one way or another.
 
 ```bash
 npm run dev      # tsx watch, for local development
@@ -72,18 +117,18 @@ curl http://localhost:8787/v1/chat/completions \
   }'
 ```
 
-## Configuration
-
-All configuration is environment variables - see [`.env.example`](./.env.example) for the full, documented list (auth mode, runtime, sessions, tool bridge, concurrency limits, rate limiting, logging). The important ones to know up front:
+See [`.env.example`](./.env.example) for the full, documented list of every variable (auth mode, runtime, sessions, tool bridge, concurrency limits, rate limiting, logging, dashboard behavior). The important ones to know up front:
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
-| `CURSOR_API_KEY` | *(required in server mode)* | Your Cursor API key. |
+| `CURSOR_API_KEY` | *(none - triggers the setup wizard)* | Your Cursor API key. |
 | `CURSOR_KEY_MODE` | `server` | `server` uses `CURSOR_API_KEY` for everyone; `passthrough` uses each client's own bearer token as their Cursor key. |
-| `AUTH_KEY` | *(none)* | Optional bearer token clients must send to use this gateway (ignored in `passthrough` mode). |
+| `AUTH_KEY` | *(none)* | Optional bearer token clients must send to use this gateway; also doubles as the admin dashboard's password. Ignored in `passthrough` mode. |
 | `CURSOR_RUNTIME` | `local` | `local` runs agents on this machine; `cloud` runs on a Cursor-hosted VM. The tool-calling bridge requires `local`. |
 | `DEFAULT_MODEL` | `composer-2.5` | Used when a client's requested model isn't in your account's catalog. |
 | `MAX_CONCURRENT_RUNS` | `8` | Global cap on simultaneous Cursor agent runs; extra requests queue. |
+| `AUTO_OPEN_BROWSER` | `true` | Opens the dashboard automatically on startup. Set `false` for Docker/headless (the provided Dockerfile already does). |
+| `ADMIN_ALLOW_REMOTE` | `false` | Allows the admin dashboard/API from non-localhost addresses. See [Dashboard security](#dashboard-security). |
 
 ## Endpoints
 
@@ -162,8 +207,9 @@ This was verified end-to-end against the real Cursor API (`npm run smoke:tools`)
 
 ## Security
 
-- **Secrets:** `CURSOR_API_KEY` lives only in `.env` (git-ignored) or your process environment, is masked in logs, and is never returned in any response body.
-- **`AUTH_KEY`:** set this to require clients to authenticate to the gateway itself (`Authorization: Bearer <AUTH_KEY>`). Not used in `passthrough` mode, since the bearer slot there is already the client's own Cursor key.
+- **Secrets:** `CURSOR_API_KEY` and `AUTH_KEY` live only in `.env` (git-ignored), your process environment, or the git-ignored `.cursor-gateway/settings.json` overlay - never in source, never in a commit. They're masked in logs and API responses (`GET /api/admin/config` returns e.g. `************mnop`, never the full value) and compared using a constant-time comparison (`src/utils/safeCompare.ts`) to avoid leaking timing information.
+- **`AUTH_KEY`:** set this (or generate one from the setup wizard) to require clients to authenticate to the gateway itself (`Authorization: Bearer <AUTH_KEY>`) - it doubles as the admin dashboard's password. Not used to gate the OpenAI-compatible endpoints in `passthrough` mode, since the bearer slot there is already the client's own Cursor key.
+- **Admin dashboard/API is loopback-only by default:** `/api/admin/*` and the dashboard itself only accept requests from `127.0.0.1`/`::1`, regardless of whether `AUTH_KEY` is set (`src/middleware/loopbackOnly.ts`) - so binding `HOST=0.0.0.0` to expose the OpenAI endpoints on a LAN doesn't also expose configuration/credentials to that same network. Set `ADMIN_ALLOW_REMOTE=true` only if you understand the risk and need to configure this gateway from another device.
 - **Agent sandboxing:** by default, Cursor local agents can read/write files and run shell commands within their working directory and reach the network - there is no human-in-the-loop approval step in headless SDK runs (this is documented SDK behavior, not something this gateway can fully turn off). This gateway limits blast radius by giving every session its own isolated scratch directory under `CURSOR_WORKDIR` (default `./.cursor-gateway/workspaces/<hash>`) rather than pointing agents at a real project checkout. If you need agents to operate on a real codebase, set `CURSOR_WORKDIR` deliberately and understand the exposure that implies.
 - **Rate limiting:** `RATE_LIMIT_WINDOW_MS` / `RATE_LIMIT_MAX` apply per resolved Cursor API key (or per IP if none).
 
@@ -172,6 +218,8 @@ This was verified end-to-end against the real Cursor API (`npm run smoke:tools`)
 This is a self-hosted tool that uses the official Cursor SDK/API with your own key - it is not a way to circumvent Cursor's pricing or an unofficial reverse-engineered API. Per [Cursor's Terms of Service](https://cursor.com/terms-of-service) §1.5(iii), you may not "rent, lease, lend, or sell" the Service. Embedding Cursor as a backend AI service inside your own application or workflow via the SDK/API is an explicitly supported use case (see Cursor's own [Notion SDK case study](https://cursor.com/blog/notion)); what's restricted is reselling access to your account/usage to third parties (e.g. selling people time on your subscription). Run this gateway for your own personal or internal use; don't turn it into a paid multi-tenant service reselling your Cursor plan.
 
 ## Deployment
+
+**Just running it locally:** `start.bat` (Windows) or `./start.sh` (Mac/Linux) - see [Quick start](#quick-start).
 
 **Docker:**
 
@@ -200,9 +248,17 @@ npm run smoke:tools              # end-to-end tool-calling round trip against a 
 npm run smoke:streaming-tools    # verifies the tool-calling bridge over an SSE stream specifically
 ```
 
-`npm run smoke` and `npm run smoke:tools` make real calls to the Cursor API (they need `npm run dev`/`npm start` running first, and a valid `CURSOR_API_KEY`). Everything else is fully offline. CI (`.github/workflows/ci.yml`) runs the offline checks (typecheck, lint, unit tests, build) on Node 18/20/22 for every push and pull request; it deliberately does **not** run the live smoke tests, since that would mean handing a real `CURSOR_API_KEY` to untrusted PR runs.
+There's also `scripts/smoke-test-admin.ts` for the setup wizard/admin API (`SMOKE_CURSOR_API_KEY=crsr_... npx tsx scripts/smoke-test-admin.ts` against a freshly-booted, unconfigured instance) - not wired to an npm script since it expects the server to be in the pre-setup state, unlike the others.
 
-This project's behavior was verified live, not just type-checked: an earlier implementation naively assumed Cursor's streamed assistant text was a growing cumulative snapshot, and it silently truncated every reply to just its last fragment (a live test surfaced `"banana"` coming back as `"ana"`). That bug, and a related one where explicit `session_id`s were only *incorrectly* appearing to work via a full-history-replay fallback, are both covered by regression tests in `test/textAccumulator.test.ts` and `test/sessionManager.test.ts`, and both are described in code comments at the exact call sites, so they don't get silently reintroduced.
+`npm run smoke*` and the admin smoke script make real calls to the Cursor API (they need a running instance and a valid Cursor key). Everything under `npm test` is fully offline. CI (`.github/workflows/ci.yml`) runs the offline checks (typecheck, lint, unit tests, build) on Node 18/20/22 for every push and pull request; it deliberately does **not** run the live smoke tests, since that would mean handing a real `CURSOR_API_KEY` to untrusted PR runs.
+
+This project's behavior was verified live, not just type-checked, and that process caught real bugs unit tests alone did not:
+
+- An earlier implementation naively assumed Cursor's streamed assistant text was a growing cumulative snapshot, and it silently truncated every reply to just its last fragment (a live test surfaced `"banana"` coming back as `"ana"`). Fixed and covered by `test/textAccumulator.test.ts`.
+- Explicit `session_id`s were only *incorrectly* appearing to work via a full-history-replay fallback that masked a re-keying bug. Fixed and covered by `test/sessionManager.test.ts`.
+- The first implementation of live port/host reconfiguration (`PATCH /api/admin/config`) deadlocked: it awaited the old HTTP server fully draining before responding, but the very request making that change was itself being served by the old server and couldn't finish until the handler returned - a live test hung indefinitely instead of completing. Fixed by not awaiting the drain (see the comment in `src/index.ts`) and covered by `test/serverRebind.test.ts`, which binds a real server and asserts the triggering request resolves within a timeout instead of hanging.
+
+Each of these is also described in a code comment at the exact call site that caused it, so they don't get silently reintroduced.
 
 ## Known dependency vulnerability (upstream, no fix available)
 
@@ -225,14 +281,17 @@ Documented honestly rather than glossed over:
 - **429 / `AgentBusyError`:** you're exceeding `MAX_CONCURRENT_RUNS`, or an agent is receiving overlapping requests faster than it can process them (the gateway serializes per-agent sends, but a very bursty client can still queue up). Raise `MAX_CONCURRENT_RUNS` or slow down the client.
 - **Requests hang, then time out:** raise `REQUEST_TIMEOUT_MS` if the task genuinely needs longer, and check the logged `runId`/`agentId` against the Cursor dashboard.
 - **Tool calls aren't triggering:** confirm `CURSOR_RUNTIME=local` and `ENABLE_TOOL_BRIDGE=true`, and check server logs for a warning about tools being ignored.
+- **Can't reach the admin dashboard from another device:** it's loopback-only by default - see [Dashboard security](#dashboard-security). Set `ADMIN_ALLOW_REMOTE=true` if you need that.
+- **Changed the port/host from the dashboard and lost connection:** the gateway rebinds automatically and the dashboard follows via `location.href`, but if that redirect doesn't fire (browser blocked it, etc.), just navigate to the new `host:port` yourself - it's logged (`HTTP server rebind complete`) and saved in `.cursor-gateway/settings.json`.
 
 ## Architecture
 
 ```
 src/
-  index.ts                 entrypoint: config, startup key check, graceful shutdown
-  server.ts                Express app wiring (middleware, routes)
-  config.ts                environment variable loading/validation
+  index.ts                 entrypoint: config, startup key check, HTTP listen + live rebind, graceful shutdown
+  server.ts                Express app wiring (middleware, routes, static dashboard assets)
+  config.ts                environment variable loading/validation (tolerates a missing CURSOR_API_KEY)
+  configStore.ts            the one shared, mutable AppConfig instance - validates/applies/persists live admin updates
   logger.ts                pino logger with secret redaction
   errors.ts                HttpError + CursorSdkError -> OpenAI error body mapping
   validation.ts            request body validation
@@ -246,12 +305,14 @@ src/
     requestTranslator.ts     OpenAI messages[] -> the single turn text/images to send
     responseTranslator.ts    RunOutcome -> OpenAI response / SSE chunks
     usage.ts                 Cursor TokenUsage -> OpenAI usage
-  gateway/orchestrator.ts    ties the above together for both chat + legacy completions routes
-  routes/                   Express route handlers
-  middleware/                auth, rate limiting, request id, error handling
-  utils/                     ids, SSE writer, hashing/diffing, concurrency primitives, token estimate
-test/                       unit tests (Cursor SDK calls mocked, no network)
+  gateway/orchestrator.ts    ties the above together for both chat + legacy completions routes AND the admin test-chat endpoint
+  routes/                   Express route handlers, including admin.ts (setup wizard + dashboard API)
+  middleware/                auth (constant-time compare), admin loopback restriction, rate limiting, request id, error handling
+  utils/                     ids, SSE writer, hashing/diffing, concurrency primitives, token estimate, safe compare, browser launcher
+public/                     the admin dashboard itself - static HTML/CSS/vanilla JS, no build step, no framework
+test/                       unit tests (Cursor SDK calls mocked, no network) + one real-server integration test (serverRebind.test.ts)
 scripts/                    real end-to-end smoke tests against a running instance
+start.bat / start.sh        one-click launchers for non-technical users (install, build, run, open browser)
 ```
 
 ## License

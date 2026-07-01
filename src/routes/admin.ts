@@ -1,0 +1,269 @@
+import { Router, type NextFunction, type Request, type Response } from "express";
+import { Cursor } from "@cursor/sdk";
+import { HttpError } from "../errors";
+import { safeCompare } from "../utils/safeCompare";
+import type { GatewayDeps } from "../gateway/orchestrator";
+import { executeGatewayTurn, prepareGatewayTurn, rememberGatewayTurn } from "../gateway/orchestrator";
+import type { ConfigStore } from "../configStore";
+import type { ChatCompletionMessage } from "../types/openai";
+import type { RunOutcome } from "../cursor/runController";
+
+function extractBearer(req: Request): string | undefined {
+  const header = req.header("authorization");
+  if (!header) return undefined;
+  return /^Bearer\s+(.+)$/i.exec(header.trim())?.[1]?.trim();
+}
+
+/**
+ * Throws if the request isn't authorized as admin. Shared by the
+ * `requireAdminAuth` middleware and the `/setup` handler (which only needs
+ * auth conditionally - once setup is already complete).
+ */
+function assertAdminAuthorized(configStore: ConfigStore, req: Request): void {
+  const authKey = configStore.config.authKey;
+  if (!authKey) {
+    // The operator explicitly chose "no admin password" during setup; the
+    // loopback-only restriction mounted ahead of this router is the
+    // remaining safety net in that case.
+    return;
+  }
+  const token = extractBearer(req);
+  if (!token || !safeCompare(token, authKey)) {
+    throw HttpError.unauthorized("Invalid or missing admin key.");
+  }
+}
+
+function requireAdminAuth(configStore: ConfigStore) {
+  return (req: Request, _res: Response, next: NextFunction): void => {
+    try {
+      assertAdminAuthorized(configStore, req);
+      next();
+    } catch (err) {
+      next(err);
+    }
+  };
+}
+
+export function createAdminRouter(deps: GatewayDeps, configStore: ConfigStore): Router {
+  const router = Router();
+
+  router.get("/status", (_req, res) => {
+    res.json({
+      setupComplete: configStore.setupComplete,
+      authRequired: Boolean(configStore.config.authKey),
+      keyMode: configStore.config.cursorKeyMode,
+    });
+  });
+
+  router.post("/setup", (req, res, next) => {
+    void (async () => {
+      try {
+        if (configStore.setupComplete) {
+          // Re-running setup on an already-configured gateway is treated as
+          // a normal config update and requires admin auth like any other
+          // change, so a random visitor can't silently take over an
+          // existing deployment just by hitting this endpoint.
+          assertAdminAuthorized(configStore, req);
+        }
+
+        const body = req.body as { cursorApiKey?: unknown; defaultModel?: unknown; generateAuthKey?: unknown };
+        if (typeof body.cursorApiKey !== "string" || body.cursorApiKey.trim().length === 0) {
+          throw HttpError.badRequest('"cursorApiKey" is required', "cursorApiKey");
+        }
+        const cursorApiKey = body.cursorApiKey.trim();
+
+        let userEmail: string | undefined;
+        let apiKeyName: string | undefined;
+        try {
+          const me = await Cursor.me({ apiKey: cursorApiKey });
+          userEmail = me.userEmail;
+          apiKeyName = me.apiKeyName;
+        } catch (err) {
+          const message = err instanceof Error ? err.message : "unknown error";
+          throw HttpError.badRequest(`That Cursor API key could not be verified: ${message}`, "cursorApiKey");
+        }
+
+        const patch: Record<string, unknown> = { cursorApiKey, cursorKeyMode: "server" };
+        if (typeof body.defaultModel === "string" && body.defaultModel.trim().length > 0) {
+          patch["defaultModel"] = body.defaultModel.trim();
+        }
+        await configStore.update(patch);
+
+        let issuedAuthKey: string | null = null;
+        if (body.generateAuthKey !== false && !configStore.config.authKey) {
+          issuedAuthKey = configStore.generateAuthKey();
+        }
+
+        res.json({
+          success: true,
+          user: { userEmail, apiKeyName },
+          authKey: issuedAuthKey,
+        });
+      } catch (err) {
+        next(err);
+      }
+    })();
+  });
+
+  router.post("/setup/preview-models", (req, res, next) => {
+    void (async () => {
+      try {
+        if (configStore.setupComplete) {
+          assertAdminAuthorized(configStore, req);
+        }
+        const body = req.body as { cursorApiKey?: unknown };
+        if (typeof body.cursorApiKey !== "string" || body.cursorApiKey.trim().length === 0) {
+          throw HttpError.badRequest('"cursorApiKey" is required', "cursorApiKey");
+        }
+        const cursorApiKey = body.cursorApiKey.trim();
+
+        let me;
+        try {
+          me = await Cursor.me({ apiKey: cursorApiKey });
+        } catch (err) {
+          const message = err instanceof Error ? err.message : "unknown error";
+          throw HttpError.badRequest(`That Cursor API key could not be verified: ${message}`, "cursorApiKey");
+        }
+
+        const models = await Cursor.models.list({ apiKey: cursorApiKey });
+        res.json({ user: { userEmail: me.userEmail, apiKeyName: me.apiKeyName }, models });
+      } catch (err) {
+        next(err);
+      }
+    })();
+  });
+
+  router.post("/login", (req, res, next) => {
+    const authKey = configStore.config.authKey;
+    if (!authKey) {
+      res.json({ ok: true, authRequired: false });
+      return;
+    }
+    const body = req.body as { authKey?: unknown };
+    if (typeof body.authKey !== "string" || !safeCompare(body.authKey, authKey)) {
+      next(HttpError.unauthorized("Incorrect admin key."));
+      return;
+    }
+    res.json({ ok: true, authRequired: true });
+  });
+
+  const admin = Router();
+  admin.use(requireAdminAuth(configStore));
+
+  admin.get("/config", (_req, res) => {
+    res.json(configStore.redactedSnapshot());
+  });
+
+  admin.get("/account", (_req, res, next) => {
+    void (async () => {
+      try {
+        const { config } = deps;
+        if (!config.cursorApiKey) {
+          res.json({ account: null, note: "No server-side Cursor API key is configured (passthrough mode)." });
+          return;
+        }
+        const me = await Cursor.me({ apiKey: config.cursorApiKey });
+        res.json({
+          account: {
+            apiKeyName: me.apiKeyName,
+            userEmail: me.userEmail,
+            userFirstName: me.userFirstName,
+            userLastName: me.userLastName,
+            createdAt: me.createdAt,
+          },
+        });
+      } catch (err) {
+        next(err);
+      }
+    })();
+  });
+
+  admin.patch("/config", (req, res, next) => {
+    void (async () => {
+      try {
+        const result = await configStore.update((req.body ?? {}) as Record<string, unknown>);
+        res.json({ ...configStore.redactedSnapshot(), restartRequired: result.restart !== "none" });
+      } catch (err) {
+        next(err);
+      }
+    })();
+  });
+
+  admin.post("/regenerate-auth-key", (_req, res) => {
+    const authKey = configStore.generateAuthKey();
+    res.json({ authKey });
+  });
+
+  admin.post("/clear-auth-key", (_req, res) => {
+    configStore.clearAuthKey();
+    res.json({ ok: true });
+  });
+
+  admin.get("/models", (_req, res, next) => {
+    void (async () => {
+      try {
+        const { config, modelCatalog } = deps;
+        if (!config.cursorApiKey) {
+          res.json({ models: [], note: "No server-side Cursor API key is configured (passthrough mode) - models depend on each client's own key." });
+          return;
+        }
+        const models = await modelCatalog.list(config.cursorApiKey, true);
+        res.json({ models });
+      } catch (err) {
+        next(err);
+      }
+    })();
+  });
+
+  admin.post("/test-chat", (req, res, next) => {
+    void (async () => {
+      try {
+        const { config } = deps;
+        if (!config.cursorApiKey) {
+          throw HttpError.badRequest(
+            "Test chat needs a server-side Cursor API key. This gateway is in passthrough mode, so there is no key to test with here.",
+          );
+        }
+        const body = req.body as { message?: unknown; model?: unknown };
+        if (typeof body.message !== "string" || body.message.trim().length === 0) {
+          throw HttpError.badRequest('"message" is required', "message");
+        }
+        const requestedModelId = typeof body.model === "string" && body.model.trim().length > 0 ? body.model.trim() : config.defaultModel;
+        const rawMessages: ChatCompletionMessage[] = [{ role: "user", content: body.message }];
+
+        const prepared = await prepareGatewayTurn(deps, {
+          apiKey: config.cursorApiKey,
+          requestedModelId,
+          rawMessages,
+          tools: undefined,
+          metadata: { session_id: "admin-dashboard-test-chat" },
+          requestId: req.requestId,
+        });
+
+        let outcome: RunOutcome;
+        try {
+          outcome = await executeGatewayTurn(deps, prepared, { sink: undefined, abortSignal: undefined });
+        } finally {
+          prepared.releaseSemaphore();
+        }
+
+        if (outcome.finishReason !== "cancelled") {
+          rememberGatewayTurn(deps, prepared, outcome);
+        }
+
+        res.json({
+          content: outcome.content,
+          reasoningContent: outcome.reasoningContent,
+          model: outcome.model?.id ?? requestedModelId,
+          usage: outcome.usage,
+        });
+      } catch (err) {
+        next(err);
+      }
+    })();
+  });
+
+  router.use(admin);
+
+  return router;
+}

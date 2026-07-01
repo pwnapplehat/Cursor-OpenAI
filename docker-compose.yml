@@ -8,9 +8,10 @@ services:
     env_file:
       - .env
     volumes:
-      # Persists each session's isolated scratch working directory across
-      # container restarts. Safe to delete; the gateway recreates it.
-      - cursor-gateway-workspaces:/app/.cursor-gateway/workspaces
+      # Persists per-session scratch working directories AND settings.json
+      # (anything changed from the admin dashboard) across container
+      # restarts. Safe to delete; the gateway recreates what it needs.
+      - cursor-gateway-data:/app/.cursor-gateway
 
 volumes:
-  cursor-gateway-workspaces:
+  cursor-gateway-data:

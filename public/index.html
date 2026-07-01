@@ -1,0 +1,396 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Cursor OpenAI Gateway</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='%2322C55E'%3E%3Cpath d='M12 2 2 7l10 5 10-5-10-5Zm0 7L2 14l10 5 10-5-10-5Z'/%3E%3C/svg%3E" />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500;600;700&family=Fira+Sans:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
+<script src="https://cdn.tailwindcss.com"></script>
+<script>
+  tailwind.config = {
+    darkMode: "class",
+    theme: {
+      extend: {
+        colors: {
+          bg: "#0F172A",
+          surface: "#1E293B",
+          border: "#334155",
+          accent: "#22C55E",
+          accentDark: "#16A34A",
+          danger: "#EF4444",
+        },
+        fontFamily: {
+          sans: ["Fira Sans", "ui-sans-serif", "system-ui", "sans-serif"],
+          mono: ["Fira Code", "ui-monospace", "SFMono-Regular", "monospace"],
+        },
+      },
+    },
+  };
+</script>
+<link rel="stylesheet" href="/styles.css" />
+</head>
+<body class="min-h-screen bg-bg text-slate-100 font-sans antialiased">
+
+<div id="toast-root" class="fixed top-4 right-4 z-50 flex flex-col gap-2" aria-live="polite"></div>
+
+<!-- Loading -->
+<section data-view="loading" class="min-h-screen flex items-center justify-center">
+  <div class="flex flex-col items-center gap-3 text-slate-400">
+    <svg class="animate-spin h-8 w-8 text-accent" viewBox="0 0 24 24" fill="none"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"></path></svg>
+    <p>Loading&hellip;</p>
+  </div>
+</section>
+
+<!-- Setup wizard -->
+<section data-view="setup" class="hidden min-h-screen flex items-center justify-center px-4 py-12">
+  <div class="w-full max-w-xl">
+    <div class="text-center mb-8">
+      <div class="inline-flex items-center gap-2 text-accent font-mono text-sm mb-2 tracking-wide">
+        <span class="inline-block h-2 w-2 rounded-full bg-accent"></span> CURSOR OPENAI GATEWAY
+      </div>
+      <h1 class="text-2xl font-semibold text-white">Let's get you connected</h1>
+      <p class="text-slate-400 mt-2">A one-time setup. Takes about a minute.</p>
+    </div>
+
+    <div class="bg-surface border border-border rounded-xl p-6 shadow-xl">
+      <!-- Step indicator -->
+      <div class="flex items-center gap-2 mb-6" id="setup-steps">
+        <div class="step-dot" data-step-indicator="1"></div>
+        <div class="h-px flex-1 bg-border"></div>
+        <div class="step-dot" data-step-indicator="2"></div>
+        <div class="h-px flex-1 bg-border"></div>
+        <div class="step-dot" data-step-indicator="3"></div>
+      </div>
+
+      <!-- Step 1: API key -->
+      <div data-setup-step="1">
+        <label for="setup-api-key" class="block text-sm font-medium text-slate-300 mb-1.5">Your Cursor API key</label>
+        <input id="setup-api-key" type="password" autocomplete="off" spellcheck="false" placeholder="crsr_..." class="input-field font-mono" />
+        <p class="text-xs text-slate-500 mt-2">
+          Get one from
+          <a href="https://cursor.com/dashboard/integrations" target="_blank" rel="noopener" class="text-accent hover:underline">cursor.com/dashboard/integrations</a>
+          (user key) or your team's Service Accounts settings.
+        </p>
+        <p data-setup-error class="hidden text-sm text-danger mt-3"></p>
+        <button data-action="setup-validate" class="btn-primary w-full mt-5">
+          <span data-label>Continue</span>
+        </button>
+      </div>
+
+      <!-- Step 2: model -->
+      <div data-setup-step="2" class="hidden">
+        <div class="flex items-center gap-2 text-sm text-slate-400 mb-4">
+          <svg class="h-4 w-4 text-accent" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg>
+          <span>Connected as <span data-setup-account class="text-slate-200 font-medium"></span></span>
+        </div>
+        <label class="block text-sm font-medium text-slate-300 mb-1.5">Default model</label>
+        <input type="text" id="setup-model-filter" placeholder="Search models&hellip;" class="input-field mb-2" />
+        <div id="setup-model-list" class="model-list"></div>
+        <div class="flex gap-3 mt-5">
+          <button data-action="setup-back-1" class="btn-secondary">Back</button>
+          <button data-action="setup-continue-3" class="btn-primary flex-1">Continue</button>
+        </div>
+      </div>
+
+      <!-- Step 3: security + finish -->
+      <div data-setup-step="3" class="hidden">
+        <label class="flex items-start gap-3 cursor-pointer select-none p-3 rounded-lg border border-border hover:border-accent/50 transition-colors">
+          <input type="checkbox" id="setup-generate-key" checked class="mt-0.5 accent-accent h-4 w-4" />
+          <span>
+            <span class="block text-sm font-medium text-slate-200">Generate a secure admin key (recommended)</span>
+            <span class="block text-xs text-slate-500 mt-0.5">Protects this dashboard and, optionally, your OpenAI-compatible endpoints from anyone else on your network.</span>
+          </span>
+        </label>
+        <p data-setup-error-3 class="hidden text-sm text-danger mt-3"></p>
+        <div class="flex gap-3 mt-5">
+          <button data-action="setup-back-2" class="btn-secondary">Back</button>
+          <button data-action="setup-finish" class="btn-primary flex-1">
+            <span data-label>Finish setup</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- Step 4: done / show key -->
+      <div data-setup-step="done" class="hidden text-center">
+        <div class="mx-auto h-12 w-12 rounded-full bg-accent/10 flex items-center justify-center mb-4">
+          <svg class="h-6 w-6 text-accent" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg>
+        </div>
+        <h2 class="text-lg font-semibold text-white">You're all set</h2>
+        <div id="setup-key-reveal" class="hidden text-left mt-5">
+          <p class="text-sm text-slate-300 mb-2">Save this admin key now &mdash; it will not be shown again:</p>
+          <div class="flex items-center gap-2">
+            <code id="setup-issued-key" class="flex-1 truncate bg-bg border border-border rounded-lg px-3 py-2 font-mono text-sm text-accent"></code>
+            <button data-action="copy-issued-key" class="btn-icon" title="Copy" type="button">
+              <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 012-2h10"/></svg>
+            </button>
+          </div>
+        </div>
+        <button data-action="setup-goto-dashboard" class="btn-primary w-full mt-6">Open dashboard</button>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- Login -->
+<section data-view="login" class="hidden min-h-screen flex items-center justify-center px-4">
+  <div class="w-full max-w-sm">
+    <div class="text-center mb-6">
+      <div class="inline-flex items-center gap-2 text-accent font-mono text-sm mb-2 tracking-wide">
+        <span class="inline-block h-2 w-2 rounded-full bg-accent"></span> CURSOR OPENAI GATEWAY
+      </div>
+      <h1 class="text-xl font-semibold text-white">Sign in</h1>
+    </div>
+    <div class="bg-surface border border-border rounded-xl p-6 shadow-xl">
+      <label for="login-key" class="block text-sm font-medium text-slate-300 mb-1.5">Admin key</label>
+      <input id="login-key" type="password" autocomplete="current-password" class="input-field font-mono" placeholder="gwk_..." />
+      <label class="flex items-center gap-2 mt-3 text-sm text-slate-400 cursor-pointer select-none">
+        <input type="checkbox" id="login-remember" class="accent-accent h-4 w-4" />
+        Remember on this device
+      </label>
+      <p data-login-error class="hidden text-sm text-danger mt-3"></p>
+      <button data-action="login-submit" class="btn-primary w-full mt-4">
+        <span data-label>Sign in</span>
+      </button>
+    </div>
+  </div>
+</section>
+
+<!-- Dashboard -->
+<section data-view="dashboard" class="hidden min-h-screen">
+  <header class="border-b border-border bg-surface/60 backdrop-blur sticky top-0 z-30">
+    <div class="max-w-6xl mx-auto px-4 sm:px-6 flex items-center justify-between h-16">
+      <div class="flex items-center gap-6">
+        <div class="flex items-center gap-2 font-mono text-sm font-medium text-white">
+          <span class="inline-block h-2 w-2 rounded-full bg-accent animate-pulse"></span>
+          Cursor OpenAI Gateway
+        </div>
+        <nav class="hidden sm:flex items-center gap-1" id="dashboard-nav">
+          <button data-tab="overview" class="tab-btn">Overview</button>
+          <button data-tab="settings" class="tab-btn">Settings</button>
+          <button data-tab="test" class="tab-btn">Test chat</button>
+          <button data-tab="connect" class="tab-btn">Connect</button>
+        </nav>
+      </div>
+      <button data-action="logout" class="hidden text-sm text-slate-400 hover:text-white transition-colors" id="logout-btn">Sign out</button>
+    </div>
+    <nav class="flex sm:hidden items-center gap-1 px-4 pb-2 overflow-x-auto" id="dashboard-nav-mobile">
+      <button data-tab="overview" class="tab-btn">Overview</button>
+      <button data-tab="settings" class="tab-btn">Settings</button>
+      <button data-tab="test" class="tab-btn">Test chat</button>
+      <button data-tab="connect" class="tab-btn">Connect</button>
+    </nav>
+  </header>
+
+  <main class="max-w-6xl mx-auto px-4 sm:px-6 py-8">
+    <!-- Overview -->
+    <div data-tab-panel="overview">
+      <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-8" id="overview-cards"></div>
+      <div class="card">
+        <h2 class="card-title">Quick actions</h2>
+        <div class="flex flex-wrap gap-3 mt-3">
+          <button class="btn-secondary" data-goto-tab="test">Try a message</button>
+          <button class="btn-secondary" data-goto-tab="connect">Get connection snippets</button>
+          <button class="btn-secondary" data-goto-tab="settings">Change default model</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Settings -->
+    <div data-tab-panel="settings" class="hidden space-y-6">
+      <form data-settings-form="account" class="card">
+        <h2 class="card-title">Cursor account</h2>
+        <p class="card-subtitle">The credential this gateway uses to talk to Cursor on your behalf.</p>
+        <div class="grid sm:grid-cols-2 gap-4 mt-4">
+          <div>
+            <label class="field-label">Current key</label>
+            <input type="text" data-field="cursorApiKeyMasked" class="input-field font-mono" disabled />
+          </div>
+          <div>
+            <label class="field-label">Replace key (optional)</label>
+            <input type="password" data-field="cursorApiKey" class="input-field font-mono" placeholder="Leave blank to keep current" autocomplete="off" />
+          </div>
+          <div>
+            <label class="field-label">Key mode</label>
+            <select data-field="cursorKeyMode" class="input-field">
+              <option value="server">Server (this key, for everyone)</option>
+              <option value="passthrough">Passthrough (each client uses its own key)</option>
+            </select>
+          </div>
+          <div>
+            <label class="field-label">Runtime</label>
+            <select data-field="cursorRuntime" class="input-field">
+              <option value="local">Local (this machine)</option>
+              <option value="cloud">Cloud (Cursor-hosted VM)</option>
+            </select>
+          </div>
+        </div>
+        <div class="form-actions"><button type="submit" class="btn-primary">Save</button><span class="save-status"></span></div>
+      </form>
+
+      <form data-settings-form="model" class="card">
+        <h2 class="card-title">Model</h2>
+        <p class="card-subtitle">Used whenever a client omits "model" or requests one you don't have access to.</p>
+        <input type="text" id="settings-model-filter" placeholder="Search models&hellip;" class="input-field mt-4 mb-2" />
+        <div id="settings-model-list" class="model-list"></div>
+        <input type="hidden" data-field="defaultModel" />
+        <div class="form-actions"><button type="submit" class="btn-primary">Save</button><span class="save-status"></span></div>
+      </form>
+
+      <form data-settings-form="sessions" class="card">
+        <h2 class="card-title">Sessions</h2>
+        <p class="card-subtitle">How multi-turn conversations reuse a live Cursor agent instead of replaying history.</p>
+        <div class="grid sm:grid-cols-2 gap-4 mt-4">
+          <label class="toggle-row"><input type="checkbox" data-field="sessionsEnabled" /> <span>Enable sessions</span></label>
+          <label class="toggle-row"><input type="checkbox" data-field="autoSessionEnabled" /> <span>Auto-detect continuations</span></label>
+          <div>
+            <label class="field-label">Session idle timeout (minutes)</label>
+            <input type="number" min="1" data-field="sessionTtlMinutes" class="input-field" />
+          </div>
+          <div>
+            <label class="field-label">Max cached agents</label>
+            <input type="number" min="1" data-field="maxCachedAgents" class="input-field" />
+          </div>
+        </div>
+        <div class="form-actions"><button type="submit" class="btn-primary">Save</button><span class="save-status"></span></div>
+      </form>
+
+      <form data-settings-form="behavior" class="card">
+        <h2 class="card-title">Behavior</h2>
+        <div class="grid sm:grid-cols-2 gap-4 mt-4">
+          <label class="toggle-row"><input type="checkbox" data-field="includeThinking" /> <span>Stream reasoning as <code>reasoning_content</code></span></label>
+          <label class="toggle-row"><input type="checkbox" data-field="toolBridgeEnabled" /> <span>Enable OpenAI tool-calling bridge</span></label>
+        </div>
+        <div class="form-actions"><button type="submit" class="btn-primary">Save</button><span class="save-status"></span></div>
+      </form>
+
+      <form data-settings-form="limits" class="card">
+        <h2 class="card-title">Concurrency &amp; limits</h2>
+        <div class="grid sm:grid-cols-2 gap-4 mt-4">
+          <div>
+            <label class="field-label">Max concurrent runs</label>
+            <input type="number" min="1" data-field="maxConcurrentRuns" class="input-field" />
+          </div>
+          <div>
+            <label class="field-label">Request timeout (seconds)</label>
+            <input type="number" min="1" data-field="requestTimeoutSeconds" class="input-field" />
+          </div>
+          <div>
+            <label class="field-label">Rate limit &mdash; max requests</label>
+            <input type="number" min="1" data-field="rateLimitMax" class="input-field" />
+          </div>
+          <div>
+            <label class="field-label">Rate limit window (seconds) <span class="text-slate-500">&mdash; restart required</span></label>
+            <input type="number" min="1" data-field="rateLimitWindowSeconds" class="input-field" />
+          </div>
+        </div>
+        <div class="form-actions"><button type="submit" class="btn-primary">Save</button><span class="save-status"></span></div>
+      </form>
+
+      <form data-settings-form="server" class="card">
+        <h2 class="card-title">Server</h2>
+        <p class="card-subtitle">Changing these reconnects the running server on a new address &mdash; this page will follow automatically.</p>
+        <div class="grid sm:grid-cols-2 gap-4 mt-4">
+          <div>
+            <label class="field-label">Host</label>
+            <input type="text" data-field="host" class="input-field font-mono" />
+          </div>
+          <div>
+            <label class="field-label">Port</label>
+            <input type="number" min="1" max="65535" data-field="port" class="input-field font-mono" />
+          </div>
+          <div>
+            <label class="field-label">CORS origin</label>
+            <input type="text" data-field="corsOrigin" class="input-field font-mono" placeholder="*" />
+          </div>
+        </div>
+        <div class="form-actions"><button type="submit" class="btn-primary">Save &amp; reconnect</button><span class="save-status"></span></div>
+      </form>
+
+      <form data-settings-form="security" class="card">
+        <h2 class="card-title">Security</h2>
+        <div class="flex items-center gap-3 mt-4">
+          <input type="text" data-field="authKeyMasked" class="input-field font-mono flex-1" disabled />
+          <button type="button" data-action="regenerate-key" class="btn-secondary whitespace-nowrap">New key</button>
+          <button type="button" data-action="clear-key" class="btn-secondary whitespace-nowrap text-danger">Remove</button>
+        </div>
+        <div id="revealed-key-box" class="hidden mt-3">
+          <p class="text-sm text-slate-300 mb-2">New admin key &mdash; save it now, it will not be shown again:</p>
+          <div class="flex items-center gap-2">
+            <code id="revealed-key" class="flex-1 truncate bg-bg border border-border rounded-lg px-3 py-2 font-mono text-sm text-accent"></code>
+            <button data-action="copy-revealed-key" class="btn-icon" type="button" title="Copy">
+              <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 012-2h10"/></svg>
+            </button>
+          </div>
+        </div>
+        <label class="toggle-row mt-4">
+          <input type="checkbox" data-field="adminAllowRemote" />
+          <span>Allow admin dashboard from other devices on the network <span class="text-danger">(not recommended)</span></span>
+        </label>
+        <div class="form-actions"><button type="submit" class="btn-primary">Save</button><span class="save-status"></span></div>
+      </form>
+
+      <form data-settings-form="logging" class="card">
+        <h2 class="card-title">Logging</h2>
+        <div class="grid sm:grid-cols-2 gap-4 mt-4">
+          <div>
+            <label class="field-label">Log level</label>
+            <select data-field="logLevel" class="input-field">
+              <option value="fatal">fatal</option>
+              <option value="error">error</option>
+              <option value="warn">warn</option>
+              <option value="info">info</option>
+              <option value="debug">debug</option>
+              <option value="trace">trace</option>
+              <option value="silent">silent</option>
+            </select>
+          </div>
+          <label class="toggle-row"><input type="checkbox" data-field="logPretty" /> <span>Pretty-print logs</span></label>
+        </div>
+        <div class="form-actions"><button type="submit" class="btn-primary">Save</button><span class="save-status"></span></div>
+      </form>
+    </div>
+
+    <!-- Test chat -->
+    <div data-tab-panel="test" class="hidden">
+      <div class="card">
+        <h2 class="card-title">Try it right here</h2>
+        <p class="card-subtitle">Sends a real message through the gateway using your configured Cursor account &mdash; no code needed.</p>
+        <div id="test-chat-messages" class="mt-4 mb-4 space-y-3 max-h-[28rem] overflow-y-auto pr-1"></div>
+        <form data-action="test-chat-form" class="flex gap-2">
+          <input type="text" id="test-chat-input" placeholder="Say something&hellip;" class="input-field flex-1" autocomplete="off" />
+          <button type="submit" class="btn-primary whitespace-nowrap">Send</button>
+        </form>
+      </div>
+    </div>
+
+    <!-- Connect -->
+    <div data-tab-panel="connect" class="hidden space-y-6">
+      <div class="card">
+        <h2 class="card-title">Connect any OpenAI-compatible tool</h2>
+        <p class="card-subtitle">Point it at this base URL and API key. Pick a model to fill the snippets below.</p>
+        <div class="grid sm:grid-cols-2 gap-4 mt-4">
+          <div>
+            <label class="field-label">Base URL</label>
+            <div class="flex items-center gap-2"><code id="connect-base-url" class="flex-1 truncate bg-bg border border-border rounded-lg px-3 py-2 font-mono text-sm"></code><button data-copy-target="connect-base-url" class="btn-icon" type="button" title="Copy"><svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 012-2h10"/></svg></button></div>
+          </div>
+          <div>
+            <label class="field-label">API key</label>
+            <div class="flex items-center gap-2"><code id="connect-api-key" class="flex-1 truncate bg-bg border border-border rounded-lg px-3 py-2 font-mono text-sm"></code><button data-copy-target="connect-api-key" class="btn-icon" type="button" title="Copy"><svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 012-2h10"/></svg></button></div>
+          </div>
+        </div>
+        <div class="mt-4">
+          <label class="field-label">Model for snippets</label>
+          <select id="connect-model-select" class="input-field"></select>
+        </div>
+      </div>
+      <div id="connect-snippets" class="space-y-6"></div>
+    </div>
+  </main>
+</section>
+
+<script src="/app.js" type="module"></script>
+</body>
+</html>
