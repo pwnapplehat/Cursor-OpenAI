@@ -15,6 +15,7 @@ Built directly against the real `@cursor/sdk` v1.0.x type definitions (not guess
 ## Table of contents
 
 - [Quick start](#quick-start)
+- [Cross-platform support](#cross-platform-support)
 - [Admin dashboard](#admin-dashboard)
 - [Features](#features)
 - [Advanced: headless configuration](#advanced-headless-configuration)
@@ -34,10 +35,10 @@ Built directly against the real `@cursor/sdk` v1.0.x type definitions (not guess
 
 ## Quick start
 
-**Requires [Node.js](https://nodejs.org) 18.17 or newer** (installing Node is the only prerequisite - everything else is handled for you).
+**Requires [Node.js](https://nodejs.org) 18.17 or newer** (Node 22+ recommended - see [Cross-platform support](#cross-platform-support); installing Node is the only prerequisite, everything else is handled for you).
 
 **Windows:** double-click `start.bat`.
-**Mac/Linux:** open a terminal in this folder and run `chmod +x start.sh && ./start.sh` (only need `chmod` once).
+**Mac/Linux:** open a terminal in this folder and run `./start.sh` (already executable in the repo; if your download/transfer method stripped that bit, `chmod +x start.sh` first).
 
 Either way, the script installs dependencies, builds the project, starts the gateway, and opens your browser to the setup wizard automatically - paste in a Cursor API key (get one from [Cursor Dashboard -> Integrations](https://cursor.com/dashboard/integrations)), pick a default model, and you're done. No `.env` file, no terminal commands, no code required.
 
@@ -49,9 +50,26 @@ npm run build
 npm start
 ```
 
-This also opens the dashboard in your browser (set `AUTO_OPEN_BROWSER=false` to disable that). See [Admin dashboard](#admin-dashboard) below for what you can do there, or [Advanced: headless configuration](#advanced-headless-configuration) to skip the wizard entirely and configure everything via a `.env` file instead.
+This also opens the dashboard in your browser (set `AUTO_OPEN_BROWSER=false` to disable that). If the port it tries (`8787` by default) is already taken by something else, it automatically tries the next few ports instead of failing to start - see [Advanced: headless configuration](#advanced-headless-configuration) for the full list of settings, and [Admin dashboard](#admin-dashboard) for what you can do once it's running.
 
 For local development with hot reload: `npm run dev` (tsx watch) instead of `npm run build && npm start`.
+
+## Cross-platform support
+
+This isn't a "should work" claim - Windows, Linux, and macOS support were each specifically engineered for and then verified with real, running instances (not just reasoning about the code), because early versions genuinely broke in platform-specific ways that reasoning alone did not catch. What was actually verified, and how:
+
+- **Windows** - developed on and continuously tested against throughout, including every endpoint, the admin dashboard, and both smoke-test suites.
+- **Linux** - verified with a real, fresh `git clone` of this repository run inside Ubuntu 24.04 (WSL2), on **both Node 18.20.5 (this project's declared minimum) and Node 22.13.0**, exercising: `npm install`/`typecheck`/`lint`/`build`/`test` (105/105 passing), a real chat completion, streaming, session continuity, the OpenAI tool-calling bridge round trip, the admin dashboard's static assets and API, and - critically - running the actual `start.sh` script from a clean checkout with no `node_modules`/`dist` present, exactly as a new user would.
+- **macOS** - not physically tested (no Mac was available), but every platform-specific code path is written and reasoned about the same way as the Linux one it shares a POSIX shell and Node.js runtime with: `start.sh` is plain POSIX-compatible bash verified against real bash on Linux, and `src/utils/openBrowser.ts` has a dedicated `darwin` branch (`open <url>`) parallel to the verified Linux (`xdg-open`) and Windows (`start`) branches. macOS is the one platform here where "should work" is an informed judgment rather than a demonstrated fact - please open an issue if something doesn't.
+
+Real, previously-invisible bugs this process found and fixed (each covered by a regression test so they can't silently come back):
+
+- **`npm test`'s file glob silently didn't work on Linux at all** - `node --import tsx --test test/**/*.test.ts` relies on *something* expanding that `**` glob, and what actually does differs by shell/Node version. It happened to resolve correctly on this project's Windows dev machine, but failed outright on Linux (`sh`/`dash`, npm's default script-shell there, doesn't do bash-style `**` recursion) - this had already broken both of this repository's first two GitHub Actions CI runs on `ubuntu-latest` before this was caught. Fixed with a small platform-independent launcher (`scripts/run-tests.mjs`) that finds test files in plain Node instead of relying on shell or Node-version-specific glob behavior.
+- **`@cursor/sdk`'s default local agent storage doesn't work below Node 22.13 - on any OS.** Its default backend requires Node's built-in `node:sqlite` module (stable only in Node >= 22.13); on any earlier Node, every single local agent operation failed with "Default local agent storage requires the built-in node:sqlite module". This didn't surface in typecheck/build/test - only a real chat completion request triggers it. Fixed by explicitly configuring `JsonlLocalAgentStore` (`src/cursor/localAgentStore.ts`), which has no native dependencies and behaves identically on every supported Node version.
+- **A "`crypto` is not defined" runtime error on Node 18**, from code in `@cursor/sdk`'s dependency chain assuming the WebCrypto API is available as the bare global `crypto` - true from Node 19 onward, not on 18.x without an experimental flag. Fixed with a minimal, version-safe polyfill (`src/polyfills.ts`, imported first, before anything else) that's a no-op wherever the runtime already provides it.
+- **`start.sh` had no executable bit in git**, so a fresh clone failed with "Permission denied" even after the instructions said to run it. Fixed (`git update-index --chmod=+x start.sh`) and locked in with `.gitattributes` (`* text=auto eol=lf`) so line endings stay LF in the repository regardless of a contributor's local `core.autocrlf` setting - Windows' Git defaults to converting LF to CRLF on checkout, and a CRLF shebang line (`#!/usr/bin/env bash\r`) fails on Linux/macOS with "bad interpreter" errors.
+
+**A note on Node version support:** `@cursor/sdk`'s own `package.json` declares `engines.node: ">=22.13"` - Cursor's officially supported minimum is higher than this gateway's. Everything above is real, verified functionality on Node 18.20.5 and 22.13.0 thanks to the workarounds described, and this project keeps supporting Node >=18.17 for that reason, but Node 22+ (matching `.nvmrc`) is the safer long-term choice if you have a choice, since it's what Cursor itself tests against.
 
 ## Admin dashboard
 
@@ -257,6 +275,7 @@ This project's behavior was verified live, not just type-checked, and that proce
 - An earlier implementation naively assumed Cursor's streamed assistant text was a growing cumulative snapshot, and it silently truncated every reply to just its last fragment (a live test surfaced `"banana"` coming back as `"ana"`). Fixed and covered by `test/textAccumulator.test.ts`.
 - Explicit `session_id`s were only *incorrectly* appearing to work via a full-history-replay fallback that masked a re-keying bug. Fixed and covered by `test/sessionManager.test.ts`.
 - The first implementation of live port/host reconfiguration (`PATCH /api/admin/config`) deadlocked: it awaited the old HTTP server fully draining before responding, but the very request making that change was itself being served by the old server and couldn't finish until the handler returned - a live test hung indefinitely instead of completing. Fixed by not awaiting the drain (see the comment in `src/index.ts`) and covered by `test/serverRebind.test.ts`, which binds a real server and asserts the triggering request resolves within a timeout instead of hanging.
+- Four genuine, previously-invisible cross-platform bugs (a completely broken `npm test` on Linux, a Node-version-dependent SDK storage failure, a missing WebCrypto global on Node 18, and a non-executable `start.sh` in git) - see [Cross-platform support](#cross-platform-support) for the full account of each, and `test/findAvailablePort.test.ts` for the port-fallback logic's own regression tests.
 
 Each of these is also described in a code comment at the exact call site that caused it, so they don't get silently reintroduced.
 
@@ -281,6 +300,7 @@ Documented honestly rather than glossed over:
 - **429 / `AgentBusyError`:** you're exceeding `MAX_CONCURRENT_RUNS`, or an agent is receiving overlapping requests faster than it can process them (the gateway serializes per-agent sends, but a very bursty client can still queue up). Raise `MAX_CONCURRENT_RUNS` or slow down the client.
 - **Requests hang, then time out:** raise `REQUEST_TIMEOUT_MS` if the task genuinely needs longer, and check the logged `runId`/`agentId` against the Cursor dashboard.
 - **Tool calls aren't triggering:** confirm `CURSOR_RUNTIME=local` and `ENABLE_TOOL_BRIDGE=true`, and check server logs for a warning about tools being ignored.
+- **Started on a different port than expected:** if the configured `PORT` (8787 by default) was already in use, the gateway automatically tries the next few ports instead of failing - check the startup log line ("Port X was already in use - started on Y instead.") or the dashboard for the actual port. This only happens on initial startup; an explicit port change from the admin dashboard fails clearly instead of silently substituting a different one.
 - **Can't reach the admin dashboard from another device:** it's loopback-only by default - see [Dashboard security](#dashboard-security). Set `ADMIN_ALLOW_REMOTE=true` if you need that.
 - **Changed the port/host from the dashboard and lost connection:** the gateway rebinds automatically and the dashboard follows via `location.href`, but if that redirect doesn't fire (browser blocked it, etc.), just navigate to the new `host:port` yourself - it's logged (`HTTP server rebind complete`) and saved in `.cursor-gateway/settings.json`.
 
@@ -288,7 +308,8 @@ Documented honestly rather than glossed over:
 
 ```
 src/
-  index.ts                 entrypoint: config, startup key check, HTTP listen + live rebind, graceful shutdown
+  polyfills.ts              imported first, before anything else - Node-18-safe WebCrypto global polyfill
+  index.ts                 entrypoint: config, startup key check, port-fallback HTTP listen + live rebind, graceful shutdown
   server.ts                Express app wiring (middleware, routes, static dashboard assets)
   config.ts                environment variable loading/validation (tolerates a missing CURSOR_API_KEY)
   configStore.ts            the one shared, mutable AppConfig instance - validates/applies/persists live admin updates
@@ -299,6 +320,7 @@ src/
   cursor/
     modelCatalog.ts         Cursor.models.list() caching + OpenAI model-id resolution
     sessionManager.ts       agent cache: resume / explicit session / auto-session / fresh
+    localAgentStore.ts       explicit JsonlLocalAgentStore config - Node-version-independent, see Cross-platform support
     toolBridge.ts            OpenAI tools[] -> Cursor SDKCustomTool + call capture
     runController.ts         drives agent.send()/Run.stream(), text accumulation, tool-call race, cancellation
   translate/
@@ -308,11 +330,14 @@ src/
   gateway/orchestrator.ts    ties the above together for both chat + legacy completions routes AND the admin test-chat endpoint
   routes/                   Express route handlers, including admin.ts (setup wizard + dashboard API)
   middleware/                auth (constant-time compare), admin loopback restriction, rate limiting, request id, error handling
-  utils/                     ids, SSE writer, hashing/diffing, concurrency primitives, token estimate, safe compare, browser launcher
+  utils/                     ids, SSE writer, hashing/diffing, concurrency primitives, token estimate, safe compare, browser launcher, port fallback
 public/                     the admin dashboard itself - static HTML/CSS/vanilla JS, no build step, no framework
 test/                       unit tests (Cursor SDK calls mocked, no network) + one real-server integration test (serverRebind.test.ts)
-scripts/                    real end-to-end smoke tests against a running instance
+scripts/
+  run-tests.mjs             portable, shell/Node-version-independent *.test.ts file discovery for `npm test` (see Cross-platform support)
+  smoke-test*.ts             real end-to-end smoke tests against a running instance
 start.bat / start.sh        one-click launchers for non-technical users (install, build, run, open browser)
+.gitattributes              forces LF line endings in the repository regardless of a contributor's local git config
 ```
 
 ## License

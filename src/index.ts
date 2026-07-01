@@ -1,10 +1,12 @@
-import type { Server } from "node:http";
+import "./polyfills";
 import { Cursor } from "@cursor/sdk";
 import { loadConfig, ConfigError } from "./config";
 import { ConfigStore } from "./configStore";
 import { createLogger, maskSecret } from "./logger";
 import { buildApp } from "./server";
+import { configureLocalAgentStore } from "./cursor/localAgentStore";
 import { openBrowser } from "./utils/openBrowser";
+import { listenOnce, listenWithPortFallback } from "./utils/findAvailablePort";
 
 function dashboardUrl(host: string, port: number): string {
   const displayHost = host === "0.0.0.0" || host === "::" ? "localhost" : host;
@@ -25,6 +27,7 @@ async function main(): Promise<void> {
 
   const log = createLogger(config);
   const configStore = new ConfigStore(config, log);
+  configureLocalAgentStore(config, log);
 
   log.info(
     {
@@ -41,12 +44,7 @@ async function main(): Promise<void> {
     "starting cursor-openai-gateway",
   );
 
-  if (!configStore.setupComplete) {
-    log.warn(
-      { dashboard: dashboardUrl(config.host, config.port) },
-      "no Cursor API key configured yet - open the dashboard above to finish setup (or set CURSOR_API_KEY in .env for a headless deployment)",
-    );
-  } else if (config.cursorKeyMode === "server" && config.cursorApiKey) {
+  if (configStore.setupComplete && config.cursorKeyMode === "server" && config.cursorApiKey) {
     try {
       const me = await Cursor.me({ apiKey: config.cursorApiKey });
       log.info({ apiKeyName: me.apiKeyName, userEmail: me.userEmail }, "verified Cursor API key on startup");
@@ -61,20 +59,31 @@ async function main(): Promise<void> {
 
   const { app, sessionManager } = buildApp(configStore, log);
 
-  function listen(port: number, host: string): Promise<Server> {
-    return new Promise((resolve, reject) => {
-      const candidate = app.listen(port, host);
-      candidate.once("listening", () => resolve(candidate));
-      candidate.once("error", (err) => reject(err));
-    });
+  // Only the initial boot silently tries nearby ports if the configured one
+  // is busy - an explicit port change from the admin dashboard (below) is a
+  // deliberate user choice and should fail clearly instead, not surprise
+  // them with a different port than the one they asked for.
+  const { server: initialServer, port: actualPort } = await listenWithPortFallback(app, config.port, config.host, log);
+  let server = initialServer;
+  if (actualPort !== config.port) {
+    // Reflects reality for the dashboard/logs/openBrowser. Deliberately not
+    // persisted to settings.json - the next boot tries the originally
+    // configured port again first, so this doesn't "stick" once whatever
+    // was squatting on it is gone.
+    configStore.config.port = actualPort;
   }
+  log.info({ host: config.host, port: actualPort, dashboard: dashboardUrl(config.host, actualPort) }, "cursor-openai-gateway listening");
 
-  let server = await listen(config.port, config.host);
-  log.info({ host: config.host, port: config.port, dashboard: dashboardUrl(config.host, config.port) }, "cursor-openai-gateway listening");
+  if (!configStore.setupComplete) {
+    log.warn(
+      { dashboard: dashboardUrl(config.host, actualPort) },
+      "no Cursor API key configured yet - open the dashboard above to finish setup (or set CURSOR_API_KEY in .env for a headless deployment)",
+    );
+  }
 
   configStore.onServerRebindNeeded(async (newPort, newHost) => {
     log.info({ newPort, newHost }, "rebinding HTTP server after a port/host change from the admin dashboard");
-    const newServer = await listen(newPort, newHost);
+    const newServer = await listenOnce(app, newPort, newHost);
     const oldServer = server;
     server = newServer;
     // Deliberately not awaited: the request that triggered this rebind (the
@@ -92,7 +101,7 @@ async function main(): Promise<void> {
   });
 
   if (config.autoOpenBrowser) {
-    openBrowser(dashboardUrl(config.host, config.port), log);
+    openBrowser(dashboardUrl(config.host, actualPort), log);
   }
 
   let shuttingDown = false;

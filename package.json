@@ -32,7 +32,7 @@
     "typecheck": "tsc --noEmit -p tsconfig.all.json",
     "lint": "eslint \"src/**/*.ts\" \"test/**/*.ts\"",
     "lint:fix": "eslint \"src/**/*.ts\" \"test/**/*.ts\" --fix",
-    "test": "node --import tsx --test test/**/*.test.ts",
+    "test": "node scripts/run-tests.mjs",
     "smoke": "tsx scripts/smoke-test.ts",
     "smoke:tools": "tsx scripts/smoke-test-tools.ts",
     "smoke:streaming-tools": "tsx scripts/smoke-test-streaming-tools.ts"

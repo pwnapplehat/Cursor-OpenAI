@@ -1,0 +1,11 @@
+# Force LF line endings in the repository regardless of a contributor's local
+# core.autocrlf setting (checking out with CRLF is harmless for TS/JS, but
+# fatal for start.sh - a `#!/usr/bin/env bash^M` shebang fails to run on
+# Linux/macOS with a "bad interpreter" error). Git still checks these files
+# out with the OS's native line endings on Windows unless a tool explicitly
+# needs LF (e.g. an editor respecting .gitattributes), but the *stored*
+# blob - what `git clone`/GitHub Actions/Docker builds actually see - is
+# always LF, on every platform.
+* text=auto eol=lf
+
+*.bat text eol=crlf
