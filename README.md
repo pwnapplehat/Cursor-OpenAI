@@ -23,6 +23,7 @@ Built directly against the real `@cursor/sdk` v1.0.x type definitions (not guess
 - [Cursor Terms of Service](#cursor-terms-of-service)
 - [Deployment](#deployment)
 - [Testing and verification](#testing-and-verification)
+- [Known dependency vulnerability](#known-dependency-vulnerability-upstream-no-fix-available)
 - [Known limitations](#known-limitations)
 - [Troubleshooting](#troubleshooting)
 - [Architecture](#architecture)
@@ -194,13 +195,18 @@ docker run -d --name cursor-openai-gateway -p 8787:8787 --env-file .env cursor-o
 npm run typecheck   # tsc --noEmit, zero errors
 npm run lint         # eslint, zero errors
 npm test             # unit tests (pure logic: translators, hashing, concurrency, tool bridge, session manager - Cursor SDK calls mocked)
-npm run smoke        # end-to-end against a RUNNING instance + a real Cursor account - costs real usage
-npm run smoke:tools  # end-to-end tool-calling round trip against a RUNNING instance
+npm run smoke                    # end-to-end against a RUNNING instance + a real Cursor account - costs real usage
+npm run smoke:tools              # end-to-end tool-calling round trip against a RUNNING instance
+npm run smoke:streaming-tools    # verifies the tool-calling bridge over an SSE stream specifically
 ```
 
-`npm run smoke` and `npm run smoke:tools` make real calls to the Cursor API (they need `npm run dev`/`npm start` running first, and a valid `CURSOR_API_KEY`). Everything else is fully offline.
+`npm run smoke` and `npm run smoke:tools` make real calls to the Cursor API (they need `npm run dev`/`npm start` running first, and a valid `CURSOR_API_KEY`). Everything else is fully offline. CI (`.github/workflows/ci.yml`) runs the offline checks (typecheck, lint, unit tests, build) on Node 18/20/22 for every push and pull request; it deliberately does **not** run the live smoke tests, since that would mean handing a real `CURSOR_API_KEY` to untrusted PR runs.
 
 This project's behavior was verified live, not just type-checked: an earlier implementation naively assumed Cursor's streamed assistant text was a growing cumulative snapshot, and it silently truncated every reply to just its last fragment (a live test surfaced `"banana"` coming back as `"ana"`). That bug, and a related one where explicit `session_id`s were only *incorrectly* appearing to work via a full-history-replay fallback, are both covered by regression tests in `test/textAccumulator.test.ts` and `test/sessionManager.test.ts`, and both are described in code comments at the exact call sites, so they don't get silently reintroduced.
+
+## Known dependency vulnerability (upstream, no fix available)
+
+`npm audit` reports 3 advisories (1 high, 2 moderate) against `undici`, pulled in transitively via `@cursor/sdk` -> `@connectrpc/connect-node@1.7.0` -> `undici@^5.28.4`. The fixed releases only exist in `undici@7+`, but `@connectrpc/connect-node` pins `^5.28.4`, so there is no version of `undici` that is both patched and compatible with the current `@cursor/sdk` release (`npm audit` itself reports "No fix available"). Forcing a newer `undici` via a package-manager override would silently run an unsupported, untested combination against Cursor's own HTTP client - worse than the known issue. This is being tracked upstream; re-run `npm audit` after bumping `@cursor/sdk` to see if a newer release has picked up a fixed `@connectrpc/connect-node`.
 
 ## Known limitations
 

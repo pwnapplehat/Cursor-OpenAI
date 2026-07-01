@@ -1,0 +1,34 @@
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import type { AppConfig } from "../../src/config";
+
+/** Builds a fully-populated `AppConfig` for tests, with sane defaults and a fresh scratch workdir per call. */
+export function makeTestConfig(overrides: Partial<AppConfig> = {}): AppConfig {
+  return {
+    cursorApiKey: "test-key",
+    cursorKeyMode: "server",
+    port: 0,
+    host: "127.0.0.1",
+    nodeEnv: "test",
+    authKey: undefined,
+    corsOrigin: "*",
+    cursorRuntime: "local",
+    cursorWorkdirRoot: fs.mkdtempSync(path.join(os.tmpdir(), "cursor-gw-test-")),
+    cursorAgentMode: "agent",
+    defaultModel: "composer-2.5",
+    includeThinking: true,
+    sessionsEnabled: true,
+    autoSessionEnabled: true,
+    sessionTtlMs: 1_800_000,
+    maxCachedAgents: 50,
+    maxConcurrentRuns: 8,
+    requestTimeoutMs: 300_000,
+    toolBridgeEnabled: true,
+    rateLimitWindowMs: 60_000,
+    rateLimitMax: 120,
+    logLevel: "silent",
+    logPretty: false,
+    ...overrides,
+  };
+}

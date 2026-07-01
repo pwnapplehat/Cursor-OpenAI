@@ -1,42 +1,10 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import fs from "node:fs";
-import os from "node:os";
-import path from "node:path";
 import pino from "pino";
 import { Agent } from "@cursor/sdk";
 import type { SDKAgent } from "@cursor/sdk";
 import { SessionManager } from "../src/cursor/sessionManager";
-import type { AppConfig } from "../src/config";
-
-function makeConfig(overrides: Partial<AppConfig> = {}): AppConfig {
-  return {
-    cursorApiKey: "test-key",
-    cursorKeyMode: "server",
-    port: 0,
-    host: "127.0.0.1",
-    nodeEnv: "test",
-    authKey: undefined,
-    corsOrigin: "*",
-    cursorRuntime: "local",
-    cursorWorkdirRoot: fs.mkdtempSync(path.join(os.tmpdir(), "cursor-gw-test-")),
-    cursorAgentMode: "agent",
-    defaultModel: "composer-2.5",
-    includeThinking: true,
-    sessionsEnabled: true,
-    autoSessionEnabled: true,
-    sessionTtlMs: 1_800_000,
-    maxCachedAgents: 50,
-    maxConcurrentRuns: 8,
-    requestTimeoutMs: 300_000,
-    toolBridgeEnabled: true,
-    rateLimitWindowMs: 60_000,
-    rateLimitMax: 120,
-    logLevel: "silent",
-    logPretty: false,
-    ...overrides,
-  };
-}
+import { makeTestConfig as makeConfig } from "./helpers/testConfig";
 
 function makeFakeAgent(id: string): SDKAgent {
   return {
