@@ -1,0 +1,16 @@
+services:
+  cursor-openai-gateway:
+    build: .
+    image: cursor-openai-gateway:latest
+    restart: unless-stopped
+    ports:
+      - "${PORT:-8787}:8787"
+    env_file:
+      - .env
+    volumes:
+      # Persists each session's isolated scratch working directory across
+      # container restarts. Safe to delete; the gateway recreates it.
+      - cursor-gateway-workspaces:/app/.cursor-gateway/workspaces
+
+volumes:
+  cursor-gateway-workspaces:

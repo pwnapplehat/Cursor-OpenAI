@@ -1,0 +1,14 @@
+node_modules
+dist
+build
+.git
+.env
+.env.*
+!.env.example
+.cursor-gateway
+coverage
+*.log
+test
+scripts
+.vscode
+.idea

@@ -1,0 +1,45 @@
+{
+  "name": "cursor-openai-gateway",
+  "version": "1.0.0",
+  "description": "Production-grade OpenAI-compatible API gateway backed by the Cursor Agent SDK. Point any OpenAI-compatible client at this server and run requests through your Cursor subscription.",
+  "license": "MIT",
+  "type": "commonjs",
+  "main": "dist/index.js",
+  "engines": {
+    "node": ">=18.17.0"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "dev": "tsx watch src/index.ts",
+    "start": "node dist/index.js",
+    "typecheck": "tsc --noEmit -p tsconfig.all.json",
+    "lint": "eslint \"src/**/*.ts\" \"test/**/*.ts\"",
+    "lint:fix": "eslint \"src/**/*.ts\" \"test/**/*.ts\" --fix",
+    "test": "node --import tsx --test test/**/*.test.ts",
+    "smoke": "tsx scripts/smoke-test.ts",
+    "smoke:tools": "tsx scripts/smoke-test-tools.ts"
+  },
+  "dependencies": {
+    "@cursor/sdk": "^1.0.22",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.5",
+    "express": "^4.21.2",
+    "express-rate-limit": "^7.4.1",
+    "helmet": "^8.0.0",
+    "pino": "^9.5.0",
+    "pino-http": "^10.3.0",
+    "uuid": "^11.0.3"
+  },
+  "devDependencies": {
+    "@types/cors": "^2.8.17",
+    "@types/express": "^4.17.21",
+    "@types/node": "^22.10.2",
+    "@types/uuid": "^10.0.0",
+    "@typescript-eslint/eslint-plugin": "^8.18.1",
+    "@typescript-eslint/parser": "^8.18.1",
+    "eslint": "^9.17.0",
+    "pino-pretty": "^13.0.0",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2"
+  }
+}
