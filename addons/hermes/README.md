@@ -78,6 +78,7 @@ guessing when it finds a config state it can't merge safely.
 | `-TelegramUser <id>` | `--telegram-user <id>` | Allowlist your numeric Telegram user id (from [@userinfobot](https://t.me/userinfobot)) |
 | `-InstallHermes` | `--install-hermes` | Consent to running Hermes' official installer if Hermes is missing |
 | `-Model <id>` | `--model <id>` | Default model (default: `composer-2.5`; any id from the gateway's `/v1/models`) |
+| `-AuthKey <key>` | `--auth-key <key>` | The gateway's `AUTH_KEY`, if one is configured - used as the provider's `api_key` and for the setup script's own admin-API/model-catalog calls |
 
 ## What gets configured, exactly
 

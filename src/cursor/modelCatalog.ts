@@ -138,8 +138,11 @@ function resolveContextLength(model: SDKModel): number | undefined {
   const contextParam = (model.parameters ?? []).find((p) => p.id === "context");
   if (!contextParam) return undefined;
 
+  // `params` is required per the SDK type, but this data crosses a network
+  // boundary - a malformed variant must degrade to the fallback below, not
+  // take the whole /v1/models response down with a TypeError.
   const defaultVariant = (model.variants ?? []).find((v) => v.isDefault);
-  const defaultContext = defaultVariant?.params.find((p) => p.id === "context")?.value;
+  const defaultContext = (defaultVariant?.params ?? []).find((p) => p.id === "context")?.value;
   if (defaultContext !== undefined) {
     const parsed = parseContextValue(defaultContext);
     if (parsed !== undefined) return parsed;

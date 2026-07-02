@@ -27,6 +27,7 @@ Built directly against the real `@cursor/sdk` v1.0.x type definitions (not guess
 - [Security](#security)
 - [Cursor Terms of Service](#cursor-terms-of-service)
 - [Deployment](#deployment)
+- [Addons](#addons)
 - [Testing and verification](#testing-and-verification)
 - [Known dependency vulnerability](#known-dependency-vulnerability-upstream-no-fix-available)
 - [Known limitations](#known-limitations)
@@ -279,8 +280,6 @@ This is a self-hosted tool that uses the official Cursor SDK/API with your own k
 
 **Start automatically at login (hidden, background):** see [`autostart/`](autostart/README.md) - per-OS install/uninstall/status scripts (Windows Startup-folder shortcut, Linux `systemd --user` with a cron fallback, macOS launchd) with single-instance and port-conflict guards, so the gateway survives reboots without a terminal window staying open.
 
-**Use it from Telegram/Discord/WhatsApp as a full autonomous agent:** see [`addons/hermes/`](addons/hermes/README.md) - a complete, scripted integration with [Hermes Agent](https://hermes-agent.nousresearch.com) (tool use, cron jobs, persistent memory, live model switching across the whole catalog, and a long-running-session profile for tasks that run for hours or days).
-
 **Docker:**
 
 ```bash
@@ -296,6 +295,28 @@ docker run -d --name cursor-openai-gateway -p 8787:8787 --env-file .env cursor-o
 ```
 
 **Bare metal / VM (systemd):** build once (`npm run build`), then run `node dist/index.js` under your process supervisor of choice (systemd unit, PM2, etc.) with the environment variables from `.env.example` set. The process handles `SIGTERM`/`SIGINT` gracefully (drains in-flight requests, disposes cached agents) and force-exits after 10s if shutdown hangs.
+
+## Addons
+
+The [`addons/`](addons/README.md) folder holds optional, self-contained integrations that connect other tools to this gateway. None of them are required to run the gateway, and none modify the gateway's own code - each one only configures the external tool to talk to your running instance, following shared conventions ([`addons/README.md`](addons/README.md)): idempotent setup scripts, timestamped backups of every file they touch, no remote code execution without an explicit opt-in flag, and graceful refusal (with the exact manual step printed) instead of guessing when a config state can't be merged safely.
+
+### Hermes Agent - use the gateway from Telegram, Discord, WhatsApp, and more
+
+[`addons/hermes/`](addons/hermes/README.md) turns your Cursor subscription into a full autonomous agent you can message from your phone, built on [Hermes Agent](https://hermes-agent.nousresearch.com) (NousResearch's open-source agent framework):
+
+```
+Telegram / Discord / CLI ──▶ Hermes Agent ──▶ this gateway (localhost:8787/v1) ──▶ Cursor
+                             (tools, memory,      (OpenAI-compatible bridge,
+                              sessions, cron)      sessions, model catalog)
+```
+
+- **One-command setup** - `setup.ps1` (Windows) / `setup.sh` (Linux/macOS) health-checks the gateway (on Windows it can auto-start it via [`autostart/`](autostart/README.md)), registers the gateway as a *named* Hermes provider, wires up Telegram credentials if you pass them, restarts a running Hermes gateway, and verifies the result end-to-end. Idempotent; re-run any time to repair or update.
+- **Full live model catalog** - the addon deliberately registers a *named* custom provider (`custom:cursor`) rather than Hermes' bare `provider: custom`, because only named providers get live `/v1/models` discovery - so Hermes' `/model` picker shows every model your Cursor account can use (80+ ids including aliases) and you can switch mid-conversation (`/model claude-sonnet-5`). Context windows are detected dynamically too, via the `context_length` field this gateway's [`/v1/models`](#features) exposes.
+- **Long-running session profile** (`-LongRunning` / `--long-running`) - opt-in tuning for autonomous tasks that run for hours or days: Hermes sessions never auto-reset (no daily/idle wipes; context is managed by compression), a raised per-turn tool budget, the compression summarizer pinned to this gateway, and matched gateway-side timeouts (30-minute per-call cap aligning with Hermes' own internal API timeout, 24-hour cached-agent TTL). Applied live through the admin API when the gateway is running.
+- **Agent tool use, cron jobs, persistent memory, voice notes** - all of Hermes' own capabilities, powered by your Cursor models. Its tool loop executes each step as its own gateway request, so expect several metered Cursor requests per conversational turn - inherent to any agent driving a stateless OpenAI-style API, and explained honestly in the addon's troubleshooting table.
+- **Manual path included** - every scripted step is documented as plain `hermes config set` commands plus a reference YAML snippet, for people who don't run scripts they haven't read.
+
+Keep it personal: usage through the addon is normal plan usage under Cursor's supported SDK use case, but the same [Terms of Service](#cursor-terms-of-service) boundary applies - don't resell access.
 
 ## Testing and verification
 
@@ -363,7 +384,7 @@ src/
   validation.ts            request body validation
   types/openai.ts          hand-rolled OpenAI wire types (no runtime dependency on the openai package)
   cursor/
-    modelCatalog.ts         Cursor.models.list() caching + OpenAI model-id resolution
+    modelCatalog.ts         Cursor.models.list() caching + OpenAI model-id resolution + per-model context_length derivation
     sessionManager.ts       agent cache: resume / explicit session / auto-session / fresh; also lists/evicts sessions for the dashboard
     toolBridge.ts            OpenAI tools[] -> Cursor SDKCustomTool + call capture
     runController.ts         drives agent.send()/Run.stream(), text accumulation, tool-call race, cancellation
