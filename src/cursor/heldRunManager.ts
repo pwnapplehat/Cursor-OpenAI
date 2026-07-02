@@ -197,13 +197,18 @@ export class HeldRunManager {
     // call or final answer. (The between-request wait for the client's tool
     // result is bounded separately, by toolResultTimeoutMs.) Without this, a
     // wedged run would hang the HTTP request until the client disconnects.
+    // Deliberately NOT unref'd: while a pump is active there is always an
+    // in-flight HTTP request, so this timer never delays process exit - and
+    // it must stay ref'd to guarantee it can fire even when the wedged run's
+    // pending promises are the only other work left on the event loop
+    // (verified: with unref, Node 22's event loop drains and the timeout
+    // never runs; Node 24 happened to mask this).
     let segmentTimedOut = false;
     const segmentTimeout = setTimeout(() => {
       segmentTimedOut = true;
       this.forget(state.agentId);
       this.teardown(state, "segment timeout");
     }, state.requestTimeoutMs);
-    segmentTimeout.unref?.();
 
     try {
       const batchWait = gate.waitForBatch(state.batchSettleMs);
