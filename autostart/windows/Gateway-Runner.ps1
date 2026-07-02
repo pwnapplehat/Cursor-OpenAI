@@ -169,6 +169,22 @@ while ((Get-Date) -lt $deadline) {
 }
 
 if ($healthy) {
+    # Startup-race resolution. The pre-launch port check (section 1b) is not
+    # atomic with the launch: two runners firing at once (double logon event,
+    # overlapping manual + scheduled starts) can BOTH see the port free, and
+    # the loser's gateway silently falls back to the next port up - leaving
+    # two gateways for one repo, with the PID file pointing at the wrong one
+    # (observed in practice, not hypothetical). If the configured port's
+    # healthy listener is a gateway process that ISN'T the child we just
+    # launched, we lost the race: kill our own child (ours to kill - it's on
+    # a fallback port nobody is configured to use) and adopt the winner.
+    $portOwner = Get-PortListener -Port $port
+    if ($portOwner -and [int]$portOwner.OwningProcess -ne $process.Id -and (Test-ProcessLooksLikeGateway -ProcessId ([int]$portOwner.OwningProcess))) {
+        Write-AutostartLog -Paths $paths -Message "Lost a startup race: port $port is served by PID $($portOwner.OwningProcess), not our child $($process.Id). Stopping our duplicate and adopting the winner."
+        Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
+        Set-Content -LiteralPath $paths.PidFile -Value ([int]$portOwner.OwningProcess) -Encoding ascii
+        Exit-Runner 0
+    }
     Write-AutostartLog -Paths $paths -Message "Healthy on port $port (uptimeSeconds=$($healthy.uptimeSeconds))."
     Exit-Runner 0
 } else {

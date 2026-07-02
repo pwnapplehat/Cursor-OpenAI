@@ -20,6 +20,24 @@ if errorlevel 1 (
   exit /b 1
 )
 
+rem A gateway from this folder may already be running (e.g. installed via
+rem autostart\, or started in another window). Starting a second copy would
+rem not fail loudly - the gateway's initial-boot port fallback would silently
+rem bind the NEXT port up, leaving two gateways for one repo. Detect that and
+rem open the existing dashboard instead.
+set "GW_RUNNING_PORT="
+for /f "delims=" %%p in ('node scripts\check-running.mjs 2^>nul') do set "GW_RUNNING_PORT=%%p"
+if defined GW_RUNNING_PORT (
+  echo A gateway from this folder is already running at http://localhost:!GW_RUNNING_PORT!
+  echo ^(likely the autostart\ background service - see autostart\README.md^).
+  echo Opening its dashboard instead of starting a second copy.
+  echo.
+  echo To stop the running gateway first: autostart\windows\Stop-Gateway.ps1
+  start "" "http://localhost:!GW_RUNNING_PORT!"
+  pause
+  exit /b 0
+)
+
 if not exist "node_modules\" (
   echo Installing dependencies - this only happens once, it may take a minute...
   call npm install

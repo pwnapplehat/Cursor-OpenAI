@@ -177,6 +177,24 @@ while [ "$i" -lt 20 ]; do
     exit 1
   fi
   if check_health "$PORT"; then
+    # Startup-race resolution (mirrors the Windows runner). The pre-launch
+    # port check is not atomic with the launch: two runners firing at once
+    # can both see the port free, and the loser's gateway silently falls
+    # back to the next port up. If the configured port's healthy listener
+    # is a gateway process that ISN'T the child we just launched, we lost
+    # the race: kill our own duplicate and adopt the winner.
+    listener_pid=""
+    if command -v ss >/dev/null 2>&1; then
+      listener_pid="$(ss -ltnp 2>/dev/null | awk -v port=":$PORT" '$4 ~ port"$"' | grep -oE 'pid=[0-9]+' | head -n1 | cut -d= -f2)"
+    fi
+    if [ -n "$listener_pid" ] && [ "$listener_pid" != "$new_pid" ] && pid_is_gateway "$listener_pid"; then
+      log "Lost a startup race: port $PORT is served by PID $listener_pid, not our child $new_pid. Stopping our duplicate and adopting the winner."
+      kill "$new_pid" 2>/dev/null || true
+      sleep 1
+      kill -9 "$new_pid" 2>/dev/null || true
+      echo "$listener_pid" > "$PID_FILE"
+      exit 0
+    fi
     log "Healthy on port $PORT."
     exit 0
   fi

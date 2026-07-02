@@ -17,6 +17,24 @@ if ! command -v node >/dev/null 2>&1; then
   exit 1
 fi
 
+# A gateway from this folder may already be running (e.g. installed via
+# autostart/, or started in another terminal). Starting a second copy would
+# not fail loudly - the gateway's initial-boot port fallback would silently
+# bind the NEXT port up, leaving two gateways for one repo. Detect that and
+# open the existing dashboard instead.
+RUNNING_PORT="$(node scripts/check-running.mjs 2>/dev/null || true)"
+if [ -n "$RUNNING_PORT" ]; then
+  echo "A gateway from this folder is already running at http://localhost:$RUNNING_PORT"
+  echo "(likely the autostart/ background service - see autostart/README.md)."
+  echo "Opening its dashboard instead of starting a second copy."
+  echo
+  echo "To stop the running gateway first: autostart/linux/uninstall.sh --stop-running (or your service manager)."
+  if command -v open >/dev/null 2>&1; then open "http://localhost:$RUNNING_PORT"
+  elif command -v xdg-open >/dev/null 2>&1; then xdg-open "http://localhost:$RUNNING_PORT"
+  fi
+  exit 0
+fi
+
 if [ ! -d "node_modules" ]; then
   echo "Installing dependencies - this only happens once, it may take a minute..."
   npm install

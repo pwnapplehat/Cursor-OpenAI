@@ -44,6 +44,8 @@ Built directly against the real `@cursor/sdk` v1.0.x type definitions (not guess
 
 Either way, the script installs dependencies, builds the project, starts the gateway, and opens your browser to the setup wizard automatically - paste in a Cursor API key (get one from [Cursor Dashboard -> Integrations](https://cursor.com/dashboard/integrations)), pick a default model, and you're done. No `.env` file, no terminal commands, no code required.
 
+Both launchers are also safe to run when a gateway from this folder is *already* running (say, as the [`autostart/`](autostart/README.md) background service): they detect it and open the existing dashboard instead of starting a second copy - which would otherwise silently land on the next port up via the initial-boot port fallback, leaving two gateways for one repo.
+
 Prefer the command line? Same result:
 
 ```bash
@@ -423,6 +425,7 @@ bin/
 test/                       unit tests (Cursor SDK calls mocked, no network) + one real-server integration test (serverRebind.test.ts)
 scripts/
   run-tests.mjs             portable, shell/Node-version-independent *.test.ts file discovery for `npm test` (see Cross-platform support)
+  check-running.mjs          start.bat/start.sh pre-flight: detects an already-running gateway (same port precedence as the gateway itself) so the launchers open its dashboard instead of double-starting
   smoke-test*.ts             real end-to-end smoke tests against a running instance
 start.bat / start.sh        one-click launchers for non-technical users (install, build, run, open browser)
 .gitattributes              forces LF line endings in the repository regardless of a contributor's local git config

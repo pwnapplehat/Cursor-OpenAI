@@ -131,6 +131,10 @@ something doesn't work as documented.
 - **Stop only touches what's tracked.** `Stop-Gateway.ps1` / uninstall's
   stop options only ever kill the verified PID from the PID file. A listener
   on the port with no matching PID file entry is reported, not killed.
+- **The interactive launchers cooperate too.** `start.bat`/`start.sh` (repo
+  root) run the same detection in reverse: if a gateway from this folder is
+  already running - e.g. the one this toolkit autostarted - they open its
+  dashboard instead of starting a duplicate on a fallback port.
 - **Consistent port resolution.** Every script resolves the port exactly the
   way the gateway itself does: `.cursor-gateway/settings.json` (the admin
   dashboard's persisted overlay - wins when present) -> `PORT` in `.env`
