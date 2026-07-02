@@ -76,6 +76,21 @@ fi
 used_systemd=0
 if command -v systemctl >/dev/null 2>&1 && systemctl --user daemon-reload >/dev/null 2>&1; then
   echo "Using systemd --user service."
+
+  # Mechanism switch: if a previous install fell back to a cron @reboot entry
+  # (e.g. this box was WSL without systemd back then), remove it now - leaving
+  # both registered would start two competing gateways at every boot. The
+  # runners' race resolution converges them, but a duplicate registration
+  # should never persist.
+  if command -v crontab >/dev/null 2>&1 && crontab -l 2>/dev/null | grep -qF "$MARKER"; then
+    crontab -l 2>/dev/null | grep -vF "$MARKER" | crontab -
+    echo "Removed the previous cron @reboot fallback entry (systemd is usable now - it takes over)."
+  fi
+
+  if [ -f "$UNIT_PATH" ]; then
+    echo "Autostart was already installed - refreshing the systemd unit."
+  fi
+
   mkdir -p "$UNIT_DIR"
   # Logs deliberately go to journald (systemd's default) rather than
   # StandardOutput=append: files - journald rotates automatically, while
@@ -128,9 +143,20 @@ else
   RUN_SCRIPT="$SCRIPT_DIR/run.sh"
   chmod +x "$RUN_SCRIPT"
 
+  # Reverse mechanism switch: a systemd unit file left over from an earlier
+  # install would ALSO fire if systemd ever becomes usable again on this box,
+  # alongside the cron entry being added now. systemctl isn't reachable from
+  # here (that's why we're on the fallback path), so it can't be disabled
+  # cleanly - remove the unit file itself and say so.
+  if [ -f "$UNIT_PATH" ]; then
+    rm -f "$UNIT_PATH"
+    echo "Removed a leftover systemd unit file ($UNIT_PATH) from a previous install"
+    echo "(systemd isn't reachable from this shell, so the cron entry takes over)."
+  fi
+
   existing_crontab="$(crontab -l 2>/dev/null || true)"
   if echo "$existing_crontab" | grep -qF "$MARKER"; then
-    echo "Cron entry already present - leaving it as-is."
+    echo "Autostart was already installed - cron entry already present, leaving it as-is."
   else
     # The run.sh path is quoted in the cron line because cron hands the
     # command to /bin/sh - unquoted, a project path containing spaces

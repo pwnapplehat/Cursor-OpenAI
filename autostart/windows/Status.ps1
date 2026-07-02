@@ -23,6 +23,13 @@ if (Test-Path -LiteralPath $shortcutPath) {
     Write-Host "Autostart:  NOT installed"
 }
 
+# Surface duplicate registrations instead of silently showing only one.
+$legacyShortcut = Join-Path ([Environment]::GetFolderPath('Startup')) 'CursorOpenAIGateway.lnk'
+if (Test-Path -LiteralPath $legacyShortcut) {
+    Write-Host "WARNING:    a legacy autostart shortcut ALSO exists ($legacyShortcut)" -ForegroundColor Yellow
+    Write-Host "            - two runners would fire at every logon. Re-run Install-Autostart.ps1 (or Uninstall-Autostart.ps1) to clean it up."
+}
+
 Write-Host ""
 
 $managed = Get-ManagedGatewayProcess -Paths $paths

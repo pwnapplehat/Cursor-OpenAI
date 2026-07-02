@@ -66,11 +66,22 @@ $shortcut.WindowStyle = 7  # minimized, belt-and-suspenders alongside -WindowSty
 $shortcut.Save()
 
 if ($alreadyInstalled) {
-    Write-Host "Autostart shortcut refreshed: $shortcutPath"
+    Write-Host "Autostart was already installed - shortcut refreshed: $shortcutPath"
 } else {
     Write-Host "Autostart shortcut installed: $shortcutPath"
 }
 Write-AutostartLog -Paths $paths -Message "Autostart installed/refreshed by Install-Autostart.ps1 -> $shortcutPath"
+
+# A leftover shortcut under the old ad-hoc name would make TWO runners fire
+# at every logon (the race resolution in Gateway-Runner converges them, but
+# a duplicate registration should never persist). Same cleanup Uninstall
+# does, applied on install too so re-installing always leaves exactly one.
+$legacyShortcut = Join-Path ([Environment]::GetFolderPath('Startup')) 'CursorOpenAIGateway.lnk'
+if (Test-Path -LiteralPath $legacyShortcut) {
+    Remove-Item -LiteralPath $legacyShortcut -Force
+    Write-Host "Removed a leftover legacy autostart shortcut: $legacyShortcut"
+    Write-AutostartLog -Paths $paths -Message "Legacy shortcut removed during install."
+}
 
 Write-Host ""
 Write-Host "It will run silently (no window) the next time you log in to Windows."

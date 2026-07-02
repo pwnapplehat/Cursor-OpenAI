@@ -115,6 +115,21 @@ something doesn't work as documented.
   program - even another `node.exe`, like an editor's bundled TypeScript
   server - is treated as stale, never as "already running" and never as a
   kill target.
+- **Re-installing never leaves duplicate registrations.** Installers are
+  idempotent (re-running refreshes and says so), and they clean up competing
+  registrations from earlier setups: the Windows installer removes the
+  legacy ad-hoc shortcut name, and the Linux installer handles *mechanism
+  switches* both ways - installing the systemd unit removes a leftover cron
+  `@reboot` fallback entry, and falling back to cron removes a leftover unit
+  file (systemd being unreachable is why it fell back). Status scripts warn
+  loudly if a double registration is ever detected instead of silently
+  showing only one.
+- **Simultaneous starts converge.** The pre-launch port check is not atomic
+  with the launch, so two runners firing at once (double logon event,
+  overlapping manual + scheduled starts) could both see the port free. The
+  runner that loses the race detects a healthy gateway other than its own
+  child on the configured port, stops its own duplicate, and adopts the
+  winner into the PID file.
 - **Port-occupancy guard with adoption (Windows launcher + Linux cron
   fallback).** Before launching, if the configured port is already served by
   a *healthy* gateway the PID file didn't know about (a leftover manual

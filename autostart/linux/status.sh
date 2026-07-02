@@ -13,18 +13,26 @@ echo "Cursor-OpenAI Gateway - autostart status (Linux)"
 echo "Project: $PROJECT_ROOT"
 echo
 
-if command -v systemctl >/dev/null 2>&1 && systemctl --user list-unit-files "$SERVICE_NAME" 2>/dev/null | grep -q "$SERVICE_NAME"; then
+# Detect each mechanism independently so a double registration (unit AND
+# cron entry - possible after switching mechanisms with an older installer)
+# is surfaced instead of silently showing only one.
+HAS_UNIT=0
+[ -f "$UNIT_PATH" ] && HAS_UNIT=1
+HAS_CRON=0
+crontab -l 2>/dev/null | grep -qF "$MARKER" && HAS_CRON=1
+
+if [ "$HAS_UNIT" -eq 1 ] && command -v systemctl >/dev/null 2>&1 && systemctl --user list-unit-files "$SERVICE_NAME" 2>/dev/null | grep -q "$SERVICE_NAME"; then
   echo "Autostart:  systemd --user service installed"
   echo "Logs:       journalctl --user -u $SERVICE_NAME -f"
   echo
   systemctl --user status "$SERVICE_NAME" --no-pager 2>/dev/null || true
-elif [ -f "$UNIT_PATH" ]; then
+elif [ "$HAS_UNIT" -eq 1 ]; then
   # Unit file exists on disk but systemd --user isn't answering right now
   # (no user D-Bus session, e.g. over a bare ssh/cron context).
   echo "Autostart:  systemd unit file present ($UNIT_PATH),"
   echo "            but systemd --user is not reachable from this shell -"
   echo "            re-check from a normal login session."
-elif crontab -l 2>/dev/null | grep -qF "$MARKER"; then
+elif [ "$HAS_CRON" -eq 1 ]; then
   echo "Autostart:  cron @reboot entry installed (systemd fallback mode)"
   PID_FILE="$PROJECT_ROOT/.cursor-gateway/autostart.pid"
   pid="$(cat "$PID_FILE" 2>/dev/null || true)"
@@ -37,6 +45,13 @@ elif crontab -l 2>/dev/null | grep -qF "$MARKER"; then
   fi
 else
   echo "Autostart:  NOT installed"
+fi
+
+if [ "$HAS_UNIT" -eq 1 ] && [ "$HAS_CRON" -eq 1 ]; then
+  echo
+  echo "WARNING: BOTH the systemd unit and the cron @reboot entry are registered -"
+  echo "two competing gateways would start at every boot. Re-run install.sh (it"
+  echo "removes the one that shouldn't be active) or uninstall.sh to clear both."
 fi
 
 echo
