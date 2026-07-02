@@ -99,6 +99,7 @@ Idempotent - re-run any time to repair or update the wiring.
 | `-EmbedModel <m>` | `--embed-model <m>` | Ollama embedding model (default `nomic-embed-text`, 768 dims; unknown models get their dimensions probed live) |
 | `-UserId <id>` | `--user-id <id>` | Canonical memory identity. Precedence: this flag > the value already in `mem0.json` > your OS username |
 | `-OllamaUrl <url>` | `--ollama-url <url>` | Ollama endpoint (default `http://localhost:11434`) |
+| `-QdrantUrl <url>` | `--qdrant-url <url>` | Use a Qdrant **server** instead of the embedded folder store - required if more than one Hermes process runs at a time (see [storage modes](#storage-modes-embedded-vs-server)) |
 | `-AuthKey <key>` | `--auth-key <key>` | The gateway's `AUTH_KEY`, if configured - becomes mem0's `api_key` for LLM calls |
 
 ## What gets configured, exactly
@@ -142,6 +143,38 @@ Notes that save you a debugging session:
 - **`api_key`:** the gateway in server-key mode ignores it, so
   `no-key-required` is fine. If you set an `AUTH_KEY` on the gateway, put it
   here (`-AuthKey` / `--auth-key` does this).
+
+## Storage modes: embedded vs server
+
+Embedded Qdrant (the default, `"path"` in `mem0.json`) keeps everything in a
+local folder with zero extra services - but it is **strictly single-process**:
+the first Hermes process to open the store takes an exclusive lock, and every
+other one gets `Mem0 backend failed to initialize ... already accessed by
+another instance`. This is not a rare edge case with Hermes, because the
+messaging gateway, `hermes dashboard`, and CLI chats are *separate processes*
+that each initialize the memory provider - run any two together and one of
+them silently loses memory.
+
+If you run more than one Hermes process (or ever plan to), use a Qdrant
+server instead:
+
+```bash
+docker run -d --name hermes-qdrant --restart unless-stopped \
+  -p 127.0.0.1:6333:6333 -v hermes-qdrant-storage:/qdrant/storage qdrant/qdrant
+```
+
+then re-run the setup with `-QdrantUrl http://127.0.0.1:6333` /
+`--qdrant-url http://127.0.0.1:6333` (or hand-edit `mem0.json`, replacing
+`"path": ...` with `"url": "http://127.0.0.1:6333"`) and restart
+`hermes gateway`. The `127.0.0.1` port binding keeps the server
+loopback-only, `--restart unless-stopped` brings it back after reboots (once
+Docker itself starts), and the named volume persists memories across
+container upgrades. Re-runs of the setup preserve whichever mode `mem0.json`
+is already in.
+
+Switching modes does not migrate existing memories between stores - do it
+early, or ask the agent to `mem0_list` everything first and re-add what
+matters.
 
 ## Manual setup (no scripts)
 
@@ -192,7 +225,7 @@ everything you remember about me."
 | `hermes memory status` says plugin missing | Very old Hermes build | `hermes update`, re-run setup |
 | Memories stored but recall finds nothing | Embedder mismatch - collection built with different dimensions | Make both `embedding_dims` values match the model. On next start Hermes' plugin detects the mismatch and recreates the collection - note that this wipes previously stored memories (they are not re-embedded) |
 | Extraction never happens, `hermes logs` shows OpenRouter errors | `OPENROUTER_API_KEY` in the environment hijacks mem0's OpenAI client | Remove that variable from Hermes' `.env` / your shell |
-| `Mem0 backend not initialized ... check that qdrant is running` | Qdrant embedded mode is **single-process**: a second Hermes process (e.g. CLI chat while the Telegram gateway runs) can't open the same store folder | Use one Hermes process at a time - or switch `vector_store` to a Qdrant server (`docker run -p 6333:6333 qdrant/qdrant`, then `"url": "http://localhost:6333"` instead of `"path"`) which supports concurrent access |
+| `Mem0 backend not initialized ... already accessed by another instance` | Qdrant embedded mode is **single-process**: a second Hermes process (the dashboard, or a CLI chat while the Telegram gateway runs) can't open the same store folder | Switch to a Qdrant server - see [storage modes](#storage-modes-embedded-vs-server). (Or strictly run one Hermes process at a time.) |
 | Extraction fails only when the gateway restarts | Gateway was down at that moment; Hermes' circuit breaker pauses mem0 for 2 min after repeated failures | Install [`autostart/`](../../autostart/README.md); the breaker recovers on its own |
 | First memory operation after setup is slow | Ollama loads the embedding model into memory on first use | One-time per Ollama start; subsequent embeds are milliseconds |
 

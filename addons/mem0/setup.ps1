@@ -27,6 +27,15 @@
 #   powershell -ExecutionPolicy Bypass -File setup.ps1
 #   powershell -ExecutionPolicy Bypass -File setup.ps1 -UserId alice
 #   powershell -ExecutionPolicy Bypass -File setup.ps1 -Model gpt-5.5 -EmbedModel mxbai-embed-large
+#   powershell -ExecutionPolicy Bypass -File setup.ps1 -QdrantUrl http://127.0.0.1:6333
+#
+# Storage modes: by default memories live in embedded Qdrant (a local folder) -
+# zero services, but SINGLE-PROCESS: if you run the Hermes gateway AND
+# `hermes dashboard` / CLI chats at the same time, whichever opens the store
+# first wins and the others get no memory. If you use more than one Hermes
+# process (most people do eventually), run a Qdrant server instead and pass
+# -QdrantUrl:
+#   docker run -d --name hermes-qdrant --restart unless-stopped -p 127.0.0.1:6333:6333 -v hermes-qdrant-storage:/qdrant/storage qdrant/qdrant
 #
 # Exit codes: 0 = fully configured, 1 = prerequisite missing, 2 = partial
 # (something needs a manual step; details printed).
@@ -36,6 +45,7 @@ param(
     [string] $EmbedModel = 'nomic-embed-text',
     [string] $UserId = '',
     [string] $OllamaUrl = 'http://localhost:11434',
+    [string] $QdrantUrl = '',
     [string] $AuthKey = ''
 )
 
@@ -345,12 +355,26 @@ if (-not $effectiveUserId) { $effectiveUserId = 'hermes-user' }
 $effectiveAgentId = 'hermes'
 if ($existing -and $existing.PSObject.Properties['agent_id'] -and $existing.agent_id) { $effectiveAgentId = [string]$existing.agent_id }
 
+# Vector store location. Precedence: -QdrantUrl flag > whatever mode the
+# existing mem0.json already uses (url or path) > embedded default folder.
+$storeUrl = $QdrantUrl
 $storePath = (Join-Path $hermesHome 'mem0_qdrant') -replace '\\', '/'
 $collection = 'hermes'
 if ($existing -and $existing.oss -and $existing.oss.vector_store -and $existing.oss.vector_store.config) {
     $vsc = $existing.oss.vector_store.config
+    if (-not $storeUrl -and $vsc.PSObject.Properties['url'] -and $vsc.url) { $storeUrl = [string]$vsc.url }
     if ($vsc.PSObject.Properties['path'] -and $vsc.path) { $storePath = [string]$vsc.path }
     if ($vsc.PSObject.Properties['collection_name'] -and $vsc.collection_name) { $collection = [string]$vsc.collection_name }
+}
+if ($storeUrl) {
+    try {
+        $qdrantHealth = Invoke-WebRequest -Uri "$($storeUrl.TrimEnd('/'))/healthz" -UseBasicParsing -TimeoutSec 5
+        if ($qdrantHealth.StatusCode -eq 200) { Write-Ok "Qdrant server reachable at $storeUrl." }
+    } catch {
+        Write-Note "Qdrant server at $storeUrl is not answering /healthz - config is written anyway, but start it before using memory:"
+        Write-Note "docker run -d --name hermes-qdrant --restart unless-stopped -p 127.0.0.1:6333:6333 -v hermes-qdrant-storage:/qdrant/storage qdrant/qdrant"
+        $script:PartialSetup = $true
+    }
 }
 
 $mem0Config = [ordered]@{
@@ -376,17 +400,26 @@ $mem0Config = [ordered]@{
         }
         vector_store = [ordered]@{
             provider = 'qdrant'
-            config   = [ordered]@{
-                path                 = $storePath
-                collection_name      = $collection
-                embedding_model_dims = $dims
+            config   = if ($storeUrl) {
+                [ordered]@{
+                    url                  = $storeUrl
+                    collection_name      = $collection
+                    embedding_model_dims = $dims
+                }
+            } else {
+                [ordered]@{
+                    path                 = $storePath
+                    collection_name      = $collection
+                    embedding_model_dims = $dims
+                }
             }
         }
     }
 }
 $json = ($mem0Config | ConvertTo-Json -Depth 10) + "`n"
 [IO.File]::WriteAllText($mem0JsonPath, $json, (New-Object System.Text.UTF8Encoding($false)))
-Write-Ok "mem0.json: LLM=$Model via gateway, embedder=$EmbedModel ($dims dims), store=$storePath"
+$storeLabel = if ($storeUrl) { "$storeUrl (server - concurrent-safe)" } else { "$storePath (embedded - single process at a time)" }
+Write-Ok "mem0.json: LLM=$Model via gateway, embedder=$EmbedModel ($dims dims), store=$storeLabel"
 Write-Ok "user_id=$effectiveUserId (one merged memory store across Telegram/CLI/etc. - edit mem0.json to change)"
 
 # --- 7. Telemetry opt-out + provider activation ---------------------------------------------------

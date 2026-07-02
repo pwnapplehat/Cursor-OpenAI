@@ -375,7 +375,7 @@ Hermes ── mem0 plugin ──▶ LLM fact extraction  -> this gateway (your C
 - **Guards against real failure modes it found** - mem0's OpenAI client silently reroutes to OpenRouter whenever `OPENROUTER_API_KEY` exists in the environment (ignoring your base URL); the setup detects and flags this. It also pins `MEM0_TELEMETRY=false` - a self-hosted memory store shouldn't phone home.
 - **Why a script instead of Hermes' own wizard** - `hermes memory setup mem0 --mode oss` cannot point mem0's LLM at a custom OpenAI-compatible base URL, so the gateway wiring has to be written to `mem0.json` directly; the addon README documents the exact file for manual setup.
 
-The honest cost model: each remembered turn spends one small metered Cursor request on extraction, and embedded Qdrant is single-process (run one Hermes process at a time, or switch the config to a Qdrant server - documented in the addon's troubleshooting table).
+The honest cost model: each remembered turn spends one small metered Cursor request on extraction. Storage defaults to embedded Qdrant (a local folder, zero services) which is single-process; since Hermes' messaging gateway, dashboard, and CLI are separate processes that each open the store, the addon also supports a Qdrant server out of the box (`-QdrantUrl` / `--qdrant-url`, one `docker run` documented in its README) for concurrent access.
 
 ## Testing and verification
 

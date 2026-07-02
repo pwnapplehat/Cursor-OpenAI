@@ -28,6 +28,15 @@
 #   ./setup.sh
 #   ./setup.sh --user-id alice
 #   ./setup.sh --model gpt-5.5 --embed-model mxbai-embed-large
+#   ./setup.sh --qdrant-url http://127.0.0.1:6333
+#
+# Storage modes: by default memories live in embedded Qdrant (a local folder) -
+# zero services, but SINGLE-PROCESS: if you run the Hermes gateway AND
+# `hermes dashboard` / CLI chats at the same time, whichever opens the store
+# first wins and the others get no memory. If you use more than one Hermes
+# process (most people do eventually), run a Qdrant server instead and pass
+# --qdrant-url:
+#   docker run -d --name hermes-qdrant --restart unless-stopped -p 127.0.0.1:6333:6333 -v hermes-qdrant-storage:/qdrant/storage qdrant/qdrant
 #
 # Exit codes: 0 = fully configured, 1 = prerequisite missing, 2 = partial
 # (something needs a manual step; details printed).
@@ -38,6 +47,7 @@ MODEL='composer-2.5'
 EMBED_MODEL='nomic-embed-text'
 USER_ID=''
 OLLAMA_URL='http://localhost:11434'
+QDRANT_URL=''
 AUTH_KEY=''
 PARTIAL=0
 
@@ -47,9 +57,10 @@ while [ $# -gt 0 ]; do
     --embed-model)  EMBED_MODEL="${2:?--embed-model needs a value}"; shift 2 ;;
     --user-id)      USER_ID="${2:?--user-id needs a value}"; shift 2 ;;
     --ollama-url)   OLLAMA_URL="${2:?--ollama-url needs a value}"; shift 2 ;;
+    --qdrant-url)   QDRANT_URL="${2:?--qdrant-url needs a value}"; shift 2 ;;
     --auth-key)     AUTH_KEY="${2:?--auth-key needs a value}"; shift 2 ;;
     -h|--help)
-      sed -n '2,33p' "$0" | sed 's/^# \{0,1\}//'
+      sed -n '2,42p' "$0" | sed 's/^# \{0,1\}//'
       exit 0 ;;
     *) echo "Unknown flag: $1 (see --help)"; exit 1 ;;
   esac
@@ -307,10 +318,10 @@ fi
 
 DEFAULT_USER_ID="${USER_ID:-${USER:-hermes-user}}"
 WRITTEN="$("$PY_FOR_JSON" - "$MEM0_JSON" "$MODEL" "$BASE_URL" "$PROVIDER_API_KEY" \
-    "$EMBED_MODEL" "$OLLAMA_URL" "$DIMS" "$HERMES_HOME" "$DEFAULT_USER_ID" "$USER_ID" <<'PYEOF'
+    "$EMBED_MODEL" "$OLLAMA_URL" "$DIMS" "$HERMES_HOME" "$DEFAULT_USER_ID" "$USER_ID" "$QDRANT_URL" <<'PYEOF'
 import json, os, sys
 (path, model, base_url, api_key, embed_model, ollama_url,
- dims, hermes_home, default_user_id, explicit_user_id) = sys.argv[1:11]
+ dims, hermes_home, default_user_id, explicit_user_id, qdrant_url) = sys.argv[1:12]
 dims = int(dims)
 
 existing = {}
@@ -324,8 +335,18 @@ if os.path.exists(path):
 user_id = explicit_user_id or existing.get("user_id") or default_user_id
 agent_id = existing.get("agent_id") or "hermes"
 prev_vs = ((existing.get("oss") or {}).get("vector_store") or {}).get("config") or {}
+# Store location precedence: --qdrant-url flag > existing mem0.json mode
+# (url or path) > embedded default folder.
+store_url = qdrant_url or prev_vs.get("url") or ""
 store_path = prev_vs.get("path") or os.path.join(hermes_home, "mem0_qdrant").replace("\\", "/")
 collection = prev_vs.get("collection_name") or "hermes"
+
+if store_url:
+    vs_config = {"url": store_url, "collection_name": collection, "embedding_model_dims": dims}
+    store_label = store_url + " (server - concurrent-safe)"
+else:
+    vs_config = {"path": store_path, "collection_name": collection, "embedding_model_dims": dims}
+    store_label = store_path + " (embedded - single process at a time)"
 
 config = {
     "mode": "oss",
@@ -342,14 +363,14 @@ config = {
         },
         "vector_store": {
             "provider": "qdrant",
-            "config": {"path": store_path, "collection_name": collection, "embedding_model_dims": dims},
+            "config": vs_config,
         },
     },
 }
 with open(path, "w", encoding="utf-8") as f:
     json.dump(config, f, indent=2)
     f.write("\n")
-print(f"{user_id}|{store_path}")
+print(f"{user_id}|{store_label}")
 PYEOF
 )"
 if [ -z "$WRITTEN" ]; then
@@ -357,9 +378,20 @@ if [ -z "$WRITTEN" ]; then
   exit 1
 fi
 EFFECTIVE_USER_ID="${WRITTEN%%|*}"
-STORE_PATH="${WRITTEN##*|}"
-ok "mem0.json: LLM=$MODEL via gateway, embedder=$EMBED_MODEL ($DIMS dims), store=$STORE_PATH"
+STORE_LABEL="${WRITTEN##*|}"
+ok "mem0.json: LLM=$MODEL via gateway, embedder=$EMBED_MODEL ($DIMS dims), store=$STORE_LABEL"
 ok "user_id=$EFFECTIVE_USER_ID (one merged memory store across Telegram/CLI/etc. - edit mem0.json to change)"
+
+# If server mode is in effect, make sure the server actually answers.
+if [ -n "$QDRANT_URL" ]; then
+  if curl -fsS --max-time 5 "${QDRANT_URL%/}/healthz" >/dev/null 2>&1; then
+    ok "Qdrant server reachable at $QDRANT_URL."
+  else
+    note "Qdrant server at $QDRANT_URL is not answering /healthz - config is written anyway, but start it before using memory:"
+    note "docker run -d --name hermes-qdrant --restart unless-stopped -p 127.0.0.1:6333:6333 -v hermes-qdrant-storage:/qdrant/storage qdrant/qdrant"
+    PARTIAL=1
+  fi
+fi
 
 # --- 7. Telemetry opt-out + provider activation ---------------------------------------------------
 step "Activating mem0 in Hermes"
