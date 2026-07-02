@@ -123,7 +123,7 @@ profile:
 |---|---|---|---|
 | `session_reset.mode` (Hermes) | `both` (daily 4:00 wipe + 24h-idle wipe) | `none` | Sessions never auto-reset; context is managed by compression only. `/new`, `/reset`, `/resume` still work manually. |
 | `agent.max_turns` (Hermes) | 90 | 300 | Tool-loop iterations per turn. A long autonomous task can easily exceed 90 tool calls; Hermes' budget-pressure warnings scale with this automatically. |
-| `auxiliary.compression.provider` (Hermes) | auto-detect | `main` | Compression - the thing that lets an endless session survive a finite context window - is a separate LLM call. Pinning it to the main provider (this gateway) guarantees it always has working credentials, and (same model = same context length) satisfies Hermes' documented requirement that the summary model's context be ≥ the main model's. |
+| `auxiliary.compression.provider` + `.model` (Hermes) | auto-detect | `custom:cursor` + your default model | Compression - the thing that lets an endless session survive a finite context window - is a separate LLM call. Pinning it to the gateway's *named* provider entry guarantees it always has working credentials, and (same model = same context length) satisfies Hermes' documented requirement that the summary model's context be ≥ the main model's. Deliberately NOT the `main` label: Hermes resolves `main` through its runtime provider label, which inside the messaging gateway is bare `custom` - a path with no endpoint credentials, so summaries silently fail and compression drops middle turns unsummarized (observed live). |
 | `REQUEST_TIMEOUT_MS` (gateway `.env`) | 300000 (5 min) | 1800000 (30 min) | Per-completion-call cap. 5 minutes kills long single agent steps; 30 minutes matches Hermes' own internal `HERMES_API_TIMEOUT=1800s` exactly, so the two layers never disagree. |
 | `SESSION_TTL_MS` (gateway `.env`) | 1800000 (30 min) | 86400000 (24 h) | How long the gateway keeps your session's Cursor agent (and its prompt cache) alive across idle gaps. |
 
@@ -185,7 +185,8 @@ hermes config set model.default composer-2.5
 # 2. Long-running profile (optional):
 hermes config set session_reset.mode none
 hermes config set agent.max_turns 300
-hermes config set auxiliary.compression.provider main
+hermes config set auxiliary.compression.provider custom:cursor
+hermes config set auxiliary.compression.model composer-2.5   # match your model.default
 #    ...and in the REPO's .env: REQUEST_TIMEOUT_MS=1800000, SESSION_TTL_MS=86400000
 #    then restart the gateway.
 

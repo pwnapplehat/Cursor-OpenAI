@@ -25,7 +25,11 @@ custom_providers:
 # For autonomous tasks that run for hours or days. Sessions never auto-reset
 # (no daily wipe, no idle wipe - /new and /reset still work manually), the
 # per-turn tool-loop budget is raised, and the compression summarizer is
-# pinned to the main provider so it provably has working credentials.
+# pinned to the gateway's NAMED provider entry so it provably has working
+# credentials. (Not the "main" label: Hermes resolves that through its
+# runtime provider label, which inside the messaging gateway is bare
+# "custom" - a credential-less path, so summaries silently fail and
+# compression drops middle turns unsummarized.)
 #
 # Pair this with the gateway-side values in the repo's .env:
 #   REQUEST_TIMEOUT_MS=1800000    # 30 min - matches Hermes' HERMES_API_TIMEOUT
@@ -39,4 +43,5 @@ agent:
 
 auxiliary:
   compression:
-    provider: main
+    provider: custom:cursor
+    model: composer-2.5   # match your model.default

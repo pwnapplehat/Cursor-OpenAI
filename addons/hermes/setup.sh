@@ -194,8 +194,15 @@ if [ "$LONG_RUNNING" -eq 1 ]; then
   step "Applying the long-running session profile"
   hermes config set session_reset.mode none >/dev/null
   hermes config set agent.max_turns 300 >/dev/null
-  hermes config set auxiliary.compression.provider main >/dev/null
-  ok "Hermes: session_reset.mode=none, agent.max_turns=300, auxiliary.compression.provider=main"
+  # Pin the compression summarizer to the NAMED provider, not the "main"
+  # label. "main" is resolved through Hermes' runtime provider label, which
+  # inside its messaging gateway is bare "custom" - a path with no endpoint
+  # credentials of its own, so summaries silently die and compression drops
+  # middle turns unsummarized (observed live). The named entry always
+  # carries its base_url/api_key.
+  hermes config set auxiliary.compression.provider "custom:cursor" >/dev/null
+  hermes config set auxiliary.compression.model "$MODEL" >/dev/null
+  ok "Hermes: session_reset.mode=none, agent.max_turns=300, auxiliary.compression = custom:cursor/$MODEL"
 
   APPLIED=0
   if [ "$GATEWAY_UP" -eq 1 ]; then
