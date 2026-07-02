@@ -284,7 +284,8 @@ The bridge only works when `CURSOR_RUNTIME=local` (custom tools are a local-agen
 
 - **Secrets:** `CURSOR_API_KEY` and `AUTH_KEY` live only in `.env` (git-ignored), your process environment, or the git-ignored `.cursor-gateway/settings.json` overlay - never in source, never in a commit. They're masked in logs and API responses (`GET /api/admin/config` returns e.g. `************mnop`, never the full value) and compared using a constant-time comparison (`src/utils/safeCompare.ts`) to avoid leaking timing information.
 - **`AUTH_KEY`:** set this (or generate one from the setup wizard) to require clients to authenticate to the gateway itself (`Authorization: Bearer <AUTH_KEY>`) - it doubles as the admin dashboard's password. Not used to gate the OpenAI-compatible endpoints in `passthrough` mode, since the bearer slot there is already the client's own Cursor key.
-- **Admin dashboard/API is loopback-only by default:** `/api/admin/*` and the dashboard itself only accept requests from `127.0.0.1`/`::1`, regardless of whether `AUTH_KEY` is set (`src/middleware/loopbackOnly.ts`) - so binding `HOST=0.0.0.0` to expose the OpenAI endpoints on a LAN doesn't also expose configuration/credentials to that same network. Set `ADMIN_ALLOW_REMOTE=true` only if you understand the risk and need to configure this gateway from another device.
+- **Admin dashboard/API is loopback-only by default:** `/api/admin/*` and the dashboard itself only accept requests from `127.0.0.1`/`::1`, regardless of whether `AUTH_KEY` is set (`src/middleware/loopbackOnly.ts`) - so binding `HOST=0.0.0.0` to expose the OpenAI endpoints on a LAN doesn't also expose configuration/credentials to that same network. This guard is **tunnel-aware**: a request carrying proxy-forwarding headers (`X-Forwarded-For`, `CF-Connecting-IP`, etc.) is refused even when its socket peer is loopback, so running a local tunnel (cloudflared/ngrok) can't expose the admin surface to the internet the way a naive loopback check would. `trust proxy` is intentionally left off, so `req.ip` stays the real, unspoofable socket peer. Set `ADMIN_ALLOW_REMOTE=true` only if you understand the risk and need to configure this gateway from another device.
+- **Open-to-network warning:** when bound to all interfaces (`HOST=0.0.0.0`) in `server` mode with no `AUTH_KEY`, the gateway logs a prominent startup warning and flags it in the dashboard's System info - because in that state any device that can reach the port can use your Cursor plan unauthenticated. Set `AUTH_KEY`, or bind `HOST=127.0.0.1`.
 - **Agent sandboxing:** by default, Cursor local agents can read/write files and run shell commands within their working directory and reach the network - there is no human-in-the-loop approval step in headless SDK runs (this is documented SDK behavior, not something this gateway can fully turn off). This gateway limits blast radius by giving every session its own isolated scratch directory under `CURSOR_WORKDIR` (default `./.cursor-gateway/workspaces/<hash>`) rather than pointing agents at a real project checkout. If you need agents to operate on a real codebase, set `CURSOR_WORKDIR` deliberately and understand the exposure that implies.
 - **Rate limiting:** `RATE_LIMIT_WINDOW_MS` / `RATE_LIMIT_MAX` apply per resolved Cursor API key (or per IP if none).
 
@@ -313,6 +314,29 @@ docker run -d --name cursor-openai-gateway -p 8787:8787 --env-file .env cursor-o
 ```
 
 **Bare metal / VM (systemd):** build once (`npm run build`), then run `node dist/index.js` under your process supervisor of choice (systemd unit, PM2, etc.) with the environment variables from `.env.example` set. The process handles `SIGTERM`/`SIGINT` gracefully (drains in-flight requests, disposes cached agents) and force-exits after 10s if shutdown hangs.
+
+### Exposing it on your network or the internet
+
+The gateway binds `HOST=0.0.0.0` by default, so it's **already reachable from other devices on your LAN** - no code change needed. On startup (when bound to all interfaces) it logs the exact base URLs to use, and the dashboard's **Settings -> System info** panel lists them too, e.g.:
+
+```
+reachable from other devices on your network:
+  http://192.168.1.42:8787/v1   (Wi-Fi)
+```
+
+**On the same network (LAN):**
+
+1. Point the other device's OpenAI client at `http://<this-machine-ip>:8787/v1` (the URL from the startup log / System info panel).
+2. If it can't connect, allow the port through this machine's OS firewall (on Windows, "allow an app through the firewall" for Node, or open TCP 8787).
+3. Bind to a single interface with `HOST=127.0.0.1` if you ever want to make it local-only again.
+
+**Over the internet:** don't port-forward the raw port - put it behind a tunnel that terminates TLS, and require a token first:
+
+1. **Set `AUTH_KEY`** (env, or the dashboard's **Security** tab). Without it, in `server` mode, anyone who reaches the port can spend your Cursor plan with no authentication - the gateway logs a loud warning at startup when it detects this. Clients then send `Authorization: Bearer <AUTH_KEY>`.
+2. Run a tunnel on this machine, e.g. `cloudflared tunnel --url http://localhost:8787` or `ngrok http 8787`. Point remote clients at the public URL the tunnel prints, with `/v1` appended.
+3. The **admin dashboard/API stays protected**: it refuses any request that arrived through a proxy/tunnel (even though such requests reach the gateway over loopback), independent of `AUTH_KEY`. So a public tunnel exposes only the OpenAI endpoints, never your configuration/credentials. Manage settings from the machine itself, or set `ADMIN_ALLOW_REMOTE=true` only if you deliberately want remote admin (behind your own auth).
+
+Keep it personal either way - see [Cursor Terms of Service](#cursor-terms-of-service). This is for reaching *your own* gateway from *your own* devices, not running a public multi-tenant service on your plan.
 
 ## Addons
 

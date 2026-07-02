@@ -8,6 +8,7 @@ import { ConfigStore } from "../configStore";
 import type { ChatCompletionMessage } from "../types/openai";
 import type { RunOutcome } from "../cursor/runController";
 import { getGatewayVersion } from "../utils/version";
+import { formatAddressForUrl, getLanAddresses, isAllInterfacesHost } from "../utils/networkAddresses";
 import { SseWriter } from "../utils/sse";
 
 function extractBearer(req: Request): string | undefined {
@@ -157,6 +158,8 @@ export function createAdminRouter(deps: GatewayDeps, configStore: ConfigStore): 
   });
 
   admin.get("/system", (_req, res) => {
+    const { config } = deps;
+    const boundToAllInterfaces = isAllInterfacesHost(config.host);
     res.json({
       gatewayVersion: getGatewayVersion(),
       nodeVersion: process.version,
@@ -164,6 +167,14 @@ export function createAdminRouter(deps: GatewayDeps, configStore: ConfigStore): 
       arch: process.arch,
       pid: process.pid,
       processUptimeSeconds: Math.floor(process.uptime()),
+      // Off-machine base URLs to share when bound to all interfaces (empty
+      // otherwise, since a single/loopback bind isn't reachable elsewhere).
+      networkBaseUrls: boundToAllInterfaces
+        ? getLanAddresses().map((addr) => `http://${formatAddressForUrl(addr)}:${config.port}/v1`)
+        : [],
+      // True when reachable off-machine with no AUTH_KEY gating it (server
+      // mode) - the dashboard surfaces this as a warning.
+      openToNetworkWithoutAuth: boundToAllInterfaces && config.cursorKeyMode === "server" && !config.authKey,
     });
   });
 

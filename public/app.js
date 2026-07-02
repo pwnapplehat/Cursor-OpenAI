@@ -807,9 +807,19 @@ async function renderSystemInfo() {
       "Process ID": system.pid,
       "Process uptime": formatUptime(system.processUptimeSeconds),
     };
-    container.innerHTML = Object.entries(rows)
-      .map(([label, value]) => `<dt>${escapeHtml(label)}</dt><dd>${escapeHtml(value)}</dd>`)
+    if (Array.isArray(system.networkBaseUrls) && system.networkBaseUrls.length > 0) {
+      rows["Reachable on your network"] = system.networkBaseUrls.join("\n");
+    }
+    let html = Object.entries(rows)
+      .map(([label, value]) => `<dt>${escapeHtml(label)}</dt><dd style="white-space:pre-line">${escapeHtml(value)}</dd>`)
       .join("");
+    if (system.openToNetworkWithoutAuth) {
+      html +=
+        `<dt>Security</dt><dd class="text-danger">Reachable by other devices with no API key set. ` +
+        `Anyone who can reach this port can use your Cursor plan. Set an admin/API key in the Security tab, ` +
+        `or set Host to 127.0.0.1 in Network &amp; server to keep it local-only.</dd>`;
+    }
+    container.innerHTML = html;
     container.dataset.loaded = "1";
   } catch (err) {
     container.innerHTML = `<dd class="text-danger col-span-2">${escapeHtml(err.message)}</dd>`;

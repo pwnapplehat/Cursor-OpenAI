@@ -6,10 +6,44 @@ import { createLogger, maskSecret } from "./logger";
 import { buildApp } from "./server";
 import { openBrowser } from "./utils/openBrowser";
 import { listenOnce, listenWithPortFallback } from "./utils/findAvailablePort";
+import { formatAddressForUrl, getLanAddresses, isAllInterfacesHost } from "./utils/networkAddresses";
 
 function dashboardUrl(host: string, port: number): string {
   const displayHost = host === "0.0.0.0" || host === "::" ? "localhost" : host;
   return `http://${displayHost}:${port}`;
+}
+
+/**
+ * When bound to all interfaces, tells the user the exact URLs other devices
+ * on their network can point an OpenAI client at, and warns loudly if the
+ * gateway is reachable off-machine with no `AUTH_KEY` gating it (server mode
+ * only - in passthrough mode each client supplies its own Cursor key, so
+ * there is no owner-plan-burning exposure to warn about).
+ */
+function reportNetworkReachability(config: ReturnType<typeof loadConfig>, port: number, log: ReturnType<typeof createLogger>): void {
+  if (!isAllInterfacesHost(config.host)) return;
+
+  const addresses = getLanAddresses();
+  if (addresses.length > 0) {
+    log.info(
+      {
+        urls: addresses.map((addr) => ({
+          iface: addr.iface,
+          baseUrl: `http://${formatAddressForUrl(addr)}:${port}/v1`,
+        })),
+      },
+      "reachable from other devices on your network - point an OpenAI client's base_url at one of these",
+    );
+  }
+
+  if (config.cursorKeyMode === "server" && !config.authKey) {
+    log.warn(
+      { host: config.host, port },
+      "SECURITY: bound to all network interfaces with no AUTH_KEY set. Any device that can reach this port " +
+        "can use your Cursor plan with no authentication. Set AUTH_KEY (env, or the dashboard's Security tab) " +
+        "to require a bearer token, or bind HOST=127.0.0.1 to keep it local-only.",
+    );
+  }
 }
 
 async function main(): Promise<void> {
@@ -71,6 +105,8 @@ async function main(): Promise<void> {
     configStore.config.port = actualPort;
   }
   log.info({ host: config.host, port: actualPort, dashboard: dashboardUrl(config.host, actualPort) }, "cursor-openai-gateway listening");
+
+  reportNetworkReachability(config, actualPort, log);
 
   if (!configStore.setupComplete) {
     log.warn(
