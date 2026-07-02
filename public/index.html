@@ -441,6 +441,25 @@
               </div>
               <div class="settings-row-control"><label class="toggle-row"><input type="checkbox" data-field="toolBridgeEnabled" /> <span>Enable OpenAI tool-calling bridge</span></label></div>
             </div>
+            <div class="settings-row">
+              <div class="settings-row-info">
+                <div class="settings-row-title">Tool bridge mode</div>
+                <div class="settings-row-desc">"Hold" keeps one Cursor run alive across a whole tool loop (one metered request, captures parallel calls). "Cancel" is the legacy one-run-per-step behavior.</div>
+              </div>
+              <div class="settings-row-control">
+                <select data-field="toolBridgeMode" class="input-field">
+                  <option value="hold">Hold (one run per tool loop - recommended)</option>
+                  <option value="cancel">Cancel (legacy - one run per step)</option>
+                </select>
+              </div>
+            </div>
+            <div class="settings-row">
+              <div class="settings-row-info">
+                <div class="settings-row-title">Tool result timeout</div>
+                <div class="settings-row-desc">Hold mode only: seconds a held run waits for the client's tool result before it's torn down (freeing the agent and its concurrency slot).</div>
+              </div>
+              <div class="settings-row-control"><input type="number" min="1" data-field="toolResultTimeoutSeconds" class="input-field max-w-xs" /></div>
+            </div>
             <div class="form-actions"><button type="submit" class="btn-primary">Save</button><span class="save-status"></span></div>
           </form>
 

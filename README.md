@@ -139,7 +139,7 @@ Every command also accepts `--json` for machine-readable output instead of a for
 - **`/v1/embeddings`** - returns a clear, correctly-shaped `501` error rather than a fabricated vector (Cursor's Agent SDK has no embeddings API - see [Known limitations](#known-limitations)).
 - **Streaming with real deltas** - chain-of-thought/"thinking" text can be streamed as `reasoning_content`, matching the convention used by DeepSeek/o1-style OpenAI-compatible clients.
 - **Multi-turn sessions** with three ways to keep context across requests: automatic conversation-hash detection, an explicit `session_id`, or resuming a real Cursor agent by id. See [Sessions](#sessions-and-multi-turn-conversations).
-- **OpenAI tool/function-calling bridge** - your `tools[]` schemas are registered as native Cursor custom tools; when the model calls one, the gateway hands control back to your application as a standard `tool_calls` response, exactly like talking to OpenAI directly. See [Tool calling](#tool--function-calling) for how this actually works and its one real limitation.
+- **OpenAI tool/function-calling bridge** - your `tools[]` schemas are registered as native Cursor custom tools; when the model calls one, the gateway hands control back to your application as a standard `tool_calls` response, exactly like talking to OpenAI directly. In the default `hold` mode the entire tool loop runs as **one metered Cursor run** (the run stays alive while your app executes each tool), and parallel tool calls are captured. See [Tool calling](#tool--function-calling) for how this actually works and the trade-offs of each mode.
 - **Concurrency controls** - a global semaphore (`MAX_CONCURRENT_RUNS`) plus per-agent mutexes prevent overwhelming the Cursor backend or triggering `AgentBusyError`.
 - **Two auth modes** - a single server-side `CURSOR_API_KEY` for personal use, or `passthrough` mode where each client supplies its own Cursor key via `Authorization: Bearer`, so one running gateway can serve multiple Cursor accounts.
 - **Robust error mapping** - every `CursorSdkError` subclass (`AuthenticationError`, `RateLimitError`, `AgentBusyError`, `ConfigurationError`, `NetworkError`, ...) maps to the correct HTTP status and an OpenAI-shaped error body.
@@ -343,6 +343,7 @@ npm test             # unit tests (pure logic: translators, hashing, concurrency
 npm run smoke                    # end-to-end against a RUNNING instance + a real Cursor account - costs real usage
 npm run smoke:tools              # end-to-end tool-calling round trip against a RUNNING instance
 npm run smoke:streaming-tools    # verifies the tool-calling bridge over an SSE stream specifically
+npm run smoke:hold-mode          # verifies a multi-step tool loop runs on ONE Cursor run/agent (hold mode)
 ```
 
 There's also `scripts/smoke-test-admin.ts` for the setup wizard/admin API (`SMOKE_CURSOR_API_KEY=crsr_... npx tsx scripts/smoke-test-admin.ts` against a freshly-booted, unconfigured instance) - not wired to an npm script since it expects the server to be in the pre-setup state, unlike the others.

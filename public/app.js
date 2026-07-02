@@ -753,6 +753,8 @@ function populateSettingsForms() {
   setField("cursorAgentMode", c.cursorAgentMode);
   setField("includeThinking", c.includeThinking, true);
   setField("toolBridgeEnabled", c.toolBridgeEnabled, true);
+  setField("toolBridgeMode", c.toolBridgeMode);
+  setField("toolResultTimeoutSeconds", msToSeconds(c.toolResultTimeoutMs));
   setField("maxConcurrentRuns", c.maxConcurrentRuns);
   setField("requestTimeoutSeconds", msToSeconds(c.requestTimeoutMs));
   setField("rateLimitMax", c.rateLimitMax);
@@ -893,6 +895,8 @@ function initSettingsForms() {
     behavior: () => ({
       includeThinking: getField(forms.behavior, "includeThinking").checked,
       toolBridgeEnabled: getField(forms.behavior, "toolBridgeEnabled").checked,
+      toolBridgeMode: getField(forms.behavior, "toolBridgeMode").value,
+      toolResultTimeoutMs: secondsToMs(getField(forms.behavior, "toolResultTimeoutSeconds").value),
     }),
     limits: () => ({
       maxConcurrentRuns: Number(getField(forms.limits, "maxConcurrentRuns").value),

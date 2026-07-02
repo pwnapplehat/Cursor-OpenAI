@@ -29,7 +29,7 @@ import { newToolCallId } from "../utils/ids";
  * bounds how long a run may wait for a result the client never sends.
  */
 export interface HeldRunSegment {
-  status: "tool_calls" | "final";
+  status: "tool_calls" | "final" | "cancelled";
   content: string;
   reasoningContent: string;
   toolCalls: HeldToolCall[];
@@ -41,6 +41,8 @@ export interface HeldRunSegment {
 
 interface HeldRunState {
   run: Run;
+  /** The Cursor API key this run was started with. Continuations must present the same key - without this, passthrough-mode clients could advance each other's runs. */
+  apiKey: string;
   iterator: ReturnType<Run["stream"]>;
   /**
    * An `iterator.next()` promise started in a previous pump that lost the race
@@ -60,6 +62,8 @@ interface HeldRunState {
   abortSignal: AbortSignal | undefined;
   timeoutHandle: NodeJS.Timeout | undefined;
   toolResultTimeoutMs: number;
+  /** Per-segment cap: how long one pump (one HTTP turn's worth of progress) may take before the run is torn down - hold mode's equivalent of the legacy path's REQUEST_TIMEOUT_MS enforcement. */
+  requestTimeoutMs: number;
   batchSettleMs: number;
   includeThinking: boolean;
   log: Logger;
@@ -70,6 +74,7 @@ interface HeldRunState {
 
 export interface StartHeldRunParams {
   agent: SDKAgent;
+  apiKey: string;
   message: string | SDKUserMessage;
   model: ModelSelection;
   agentMode: CursorAgentModeOption;
@@ -77,6 +82,7 @@ export interface StartHeldRunParams {
   gate: HeldToolGate;
   includeThinking: boolean;
   toolResultTimeoutMs: number;
+  requestTimeoutMs: number;
   batchSettleMs: number;
   onRelease: () => void;
   sink: RunSink | undefined;
@@ -95,9 +101,17 @@ export class HeldRunManager {
     return this.held.size;
   }
 
-  /** Resolves the agent id of the held run that owns `toolCallId`, if any. */
-  findAgentByToolCallId(toolCallId: string): string | undefined {
-    return this.byToolCallId.get(toolCallId);
+  /**
+   * Resolves the agent id of the held run that owns `toolCallId`, if any -
+   * but only when `apiKey` matches the key the run was started with, so one
+   * passthrough-mode account can never continue (or probe) another's run.
+   */
+  findAgentByToolCallId(toolCallId: string, apiKey: string): string | undefined {
+    const agentId = this.byToolCallId.get(toolCallId);
+    if (!agentId) return undefined;
+    const state = this.held.get(agentId);
+    if (!state || state.apiKey !== apiKey) return undefined;
+    return agentId;
   }
 
   async start(params: StartHeldRunParams): Promise<HeldRunSegment> {
@@ -110,6 +124,7 @@ export class HeldRunManager {
 
     const state: HeldRunState = {
       run,
+      apiKey: params.apiKey,
       iterator: run.stream(),
       pendingNext: undefined,
       gate: params.gate,
@@ -120,6 +135,7 @@ export class HeldRunManager {
       abortSignal: params.abortSignal,
       timeoutHandle: undefined,
       toolResultTimeoutMs: params.toolResultTimeoutMs,
+      requestTimeoutMs: params.requestTimeoutMs,
       batchSettleMs: params.batchSettleMs,
       includeThinking: params.includeThinking,
       log: params.log,
@@ -176,6 +192,19 @@ export class HeldRunManager {
 
   private async pump(state: HeldRunState, sink: RunSink | undefined): Promise<HeldRunSegment> {
     const { run, gate, textAcc, reasoningAcc, log } = state;
+    // Per-segment cap, mirroring the legacy path's REQUEST_TIMEOUT_MS: bounds
+    // how long ONE HTTP turn may wait for the run to produce its next tool
+    // call or final answer. (The between-request wait for the client's tool
+    // result is bounded separately, by toolResultTimeoutMs.) Without this, a
+    // wedged run would hang the HTTP request until the client disconnects.
+    let segmentTimedOut = false;
+    const segmentTimeout = setTimeout(() => {
+      segmentTimedOut = true;
+      this.forget(state.agentId);
+      this.teardown(state, "segment timeout");
+    }, state.requestTimeoutMs);
+    segmentTimeout.unref?.();
+
     try {
       const batchWait = gate.waitForBatch(state.batchSettleMs);
       let toolBatch: HeldToolCall[] = [];
@@ -201,6 +230,29 @@ export class HeldRunManager {
         state.pendingNext = undefined;
         if (winner.value.done) break;
         consumeSdkMessage(winner.value.value, textAcc, reasoningAcc, sink, state.includeThinking, log);
+      }
+
+      if (segmentTimedOut) {
+        throw HttpError.timeout(
+          `Cursor agent run ${state.runId} did not produce its next tool call or final answer within ${state.requestTimeoutMs}ms and was cancelled. ` +
+            "Increase REQUEST_TIMEOUT_MS if this task is expected to take longer.",
+        );
+      }
+
+      // Client disconnected mid-segment: teardown already ran via the abort
+      // listener; report a cancelled segment (nobody is reading the response,
+      // but callers use this to skip session bookkeeping, mirroring legacy).
+      if (state.abortSignal?.aborted) {
+        return {
+          status: "cancelled",
+          content: textAcc.current,
+          reasoningContent: reasoningAcc.current,
+          toolCalls: [],
+          usage: run.usage,
+          agentId: state.agentId,
+          runId: state.runId,
+          model: run.model,
+        };
       }
 
       if (toolBatch.length > 0) {
@@ -261,6 +313,12 @@ export class HeldRunManager {
       this.forget(state.agentId);
       this.teardown(state, "pump error");
       throw err;
+    } finally {
+      // Every exit path must disarm the segment timer: a tool_calls return
+      // parks the run under toolResultTimeoutMs instead, and final/cancelled/
+      // error paths have already settled - a stray segment timer firing later
+      // would tear down a legitimately parked run.
+      clearTimeout(segmentTimeout);
     }
   }
 

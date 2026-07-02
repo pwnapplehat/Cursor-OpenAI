@@ -69,6 +69,7 @@ export interface PreparedGatewayTurn {
 function detectHeldContinuation(
   heldRunManager: HeldRunManager,
   messages: ChatCompletionMessage[],
+  apiKey: string,
 ): HeldContinuation | undefined {
   const trailingToolResults: Array<{ id: string; content: string }> = [];
   for (let i = messages.length - 1; i >= 0; i -= 1) {
@@ -81,10 +82,10 @@ function detectHeldContinuation(
   if (trailingToolResults.length === 0) return undefined;
 
   for (const result of trailingToolResults) {
-    const agentId = heldRunManager.findAgentByToolCallId(result.id);
+    const agentId = heldRunManager.findAgentByToolCallId(result.id, apiKey);
     if (agentId) {
       // Only pass results whose ids belong to this same held run.
-      const results = trailingToolResults.filter((r) => heldRunManager.findAgentByToolCallId(r.id) === agentId);
+      const results = trailingToolResults.filter((r) => heldRunManager.findAgentByToolCallId(r.id, apiKey) === agentId);
       return { agentId, results };
     }
   }
@@ -137,7 +138,7 @@ export async function prepareGatewayTurn(
   // session mutex from the original request, so we do NOT take a semaphore
   // slot here (that would double-count the same logical run against the
   // concurrency cap and could deadlock at MAX_CONCURRENT_RUNS=1).
-  const continuation = detectHeldContinuation(heldRunManager, rest);
+  const continuation = detectHeldContinuation(heldRunManager, rest, apiKey);
   if (continuation) {
     return {
       apiKey,
@@ -225,7 +226,7 @@ function segmentToOutcome(segment: HeldRunSegment): RunOutcome {
   return {
     content: segment.content,
     reasoningContent: segment.reasoningContent,
-    finishReason: segment.status === "tool_calls" ? "tool_calls" : "stop",
+    finishReason: segment.status === "tool_calls" ? "tool_calls" : segment.status === "cancelled" ? "cancelled" : "stop",
     // The response translator emits a single tool call today; hold mode may
     // surface several (parallel calls). We keep the first in the legacy
     // single-call slot and expose the full set via `toolCalls` for the
@@ -306,6 +307,7 @@ export async function executeGatewayTurn(
     try {
       const segment = await heldRunManager.start({
         agent: prepared.handle.agent,
+        apiKey: prepared.apiKey,
         message: prepared.turnMessage,
         model: { id: prepared.resolvedModelId },
         agentMode: config.cursorAgentMode,
@@ -313,6 +315,7 @@ export async function executeGatewayTurn(
         gate: prepared.heldGate,
         includeThinking: config.includeThinking,
         toolResultTimeoutMs: config.toolResultTimeoutMs,
+        requestTimeoutMs: config.requestTimeoutMs,
         batchSettleMs: PARALLEL_TOOL_SETTLE_MS,
         onRelease: releaseMutex,
         sink: options.sink,
