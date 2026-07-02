@@ -1,0 +1,42 @@
+# Canonical Hermes config blocks for the Cursor-OpenAI gateway integration.
+# This is a REFERENCE snippet for manual setup - merge it into the file that
+# `hermes config path` prints (usually ~/.hermes/config.yaml, or
+# %LOCALAPPDATA%\hermes\config.yaml on Windows). The setup scripts apply the
+# same values through Hermes' own `hermes config set` CLI instead.
+#
+# Adjust the port if your gateway doesn't run on 8787, and replace
+# no-key-required with your AUTH_KEY if the gateway has one configured.
+
+# --- Required: gateway as a NAMED provider + main model -----------------------
+# "custom:cursor" (named) rather than bare "custom" is what enables live
+# /v1/models discovery in Hermes' /model picker.
+model:
+  default: composer-2.5
+  provider: custom:cursor
+  base_url: http://localhost:8787/v1
+  api_key: no-key-required
+
+custom_providers:
+  - name: cursor
+    base_url: http://localhost:8787/v1
+    api_key: no-key-required
+
+# --- Optional: long-running session profile ------------------------------------
+# For autonomous tasks that run for hours or days. Sessions never auto-reset
+# (no daily wipe, no idle wipe - /new and /reset still work manually), the
+# per-turn tool-loop budget is raised, and the compression summarizer is
+# pinned to the main provider so it provably has working credentials.
+#
+# Pair this with the gateway-side values in the repo's .env:
+#   REQUEST_TIMEOUT_MS=1800000    # 30 min - matches Hermes' HERMES_API_TIMEOUT
+#   SESSION_TTL_MS=86400000       # 24 h cached-agent retention
+# (then restart the gateway).
+session_reset:
+  mode: none
+
+agent:
+  max_turns: 300
+
+auxiliary:
+  compression:
+    provider: main

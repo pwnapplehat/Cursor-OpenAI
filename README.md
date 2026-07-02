@@ -279,6 +279,8 @@ This is a self-hosted tool that uses the official Cursor SDK/API with your own k
 
 **Start automatically at login (hidden, background):** see [`autostart/`](autostart/README.md) - per-OS install/uninstall/status scripts (Windows Startup-folder shortcut, Linux `systemd --user` with a cron fallback, macOS launchd) with single-instance and port-conflict guards, so the gateway survives reboots without a terminal window staying open.
 
+**Use it from Telegram/Discord/WhatsApp as a full autonomous agent:** see [`addons/hermes/`](addons/hermes/README.md) - a complete, scripted integration with [Hermes Agent](https://hermes-agent.nousresearch.com) (tool use, cron jobs, persistent memory, live model switching across the whole catalog, and a long-running-session profile for tasks that run for hours or days).
+
 **Docker:**
 
 ```bash
