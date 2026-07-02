@@ -42,7 +42,7 @@ Built directly against the real `@cursor/sdk` v1.0.x type definitions (not guess
 **Windows:** double-click `start.bat`.
 **Mac/Linux:** open a terminal in this folder and run `./start.sh` (already executable in the repo; if your download/transfer method stripped that bit, `chmod +x start.sh` first).
 
-Either way, the script installs dependencies, builds the project, starts the gateway, and opens your browser to the setup wizard automatically - paste in a Cursor API key (get one from [Cursor Dashboard -> Integrations](https://cursor.com/dashboard/integrations)), pick a default model, and you're done. No `.env` file, no terminal commands, no code required.
+Either way, the script installs dependencies, builds the project, starts the gateway, and opens your browser to the setup wizard automatically - paste in a Cursor API key (get one from [Cursor Dashboard -> API Keys](https://cursor.com/dashboard/api)), pick a default model, and you're done. No `.env` file, no terminal commands, no code required.
 
 Both launchers are also safe to run when a gateway from this folder is *already* running (say, as the [`autostart/`](autostart/README.md) background service): they detect it and open the existing dashboard instead of starting a second copy - which would otherwise silently land on the next port up via the initial-boot port fallback, leaving two gateways for one repo.
 
@@ -157,7 +157,7 @@ npm install
 cp .env.example .env
 ```
 
-Edit `.env` and set `CURSOR_API_KEY` to a user API key from [Cursor Dashboard -> Integrations](https://cursor.com/dashboard/integrations), or a team service-account key from Team Settings -> Service accounts. Leaving it blank is fine too - the gateway boots anyway and serves the setup wizard until it's configured one way or another.
+Edit `.env` and set `CURSOR_API_KEY` to a user API key from [Cursor Dashboard -> API Keys](https://cursor.com/dashboard/api), or a team service-account key from Team Settings -> Service accounts. Leaving it blank is fine too - the gateway boots anyway and serves the setup wizard until it's configured one way or another.
 
 ```bash
 npm run dev      # tsx watch, for local development

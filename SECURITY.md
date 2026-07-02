@@ -12,7 +12,7 @@ If you find a security issue in this project, please open a private report via [
 
 - `CURSOR_API_KEY` (and any `AUTH_KEY` you configure) should live only in a local, git-ignored `.env` file or in your deployment platform's secret store - never in source, never in a commit. `.env` is already listed in `.gitignore`; only `.env.example` (with empty placeholder values) is tracked.
 - Logs redact `Authorization` headers and any field named `apiKey`/`cursorApiKey`/`CURSOR_API_KEY`/`api_key` (see `src/logger.ts`). Startup logs mask the configured key to a short prefix/suffix (see `maskSecret` in `src/logger.ts`) - the full key is never printed.
-- If a Cursor API key is ever accidentally exposed (committed, logged externally, pasted somewhere public), rotate it immediately from the [Cursor Dashboard](https://cursor.com/dashboard/integrations) or your team's Service Accounts settings - this project cannot invalidate a key for you.
+- If a Cursor API key is ever accidentally exposed (committed, logged externally, pasted somewhere public), rotate it immediately from the [Cursor Dashboard](https://cursor.com/dashboard/api) or your team's Service Accounts settings - this project cannot invalidate a key for you.
 
 ## Known upstream issue
 
