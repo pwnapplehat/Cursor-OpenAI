@@ -1,6 +1,6 @@
 import { Router, type Request, type Response } from "express";
 import type { GatewayDeps } from "../gateway/orchestrator";
-import { executeGatewayTurn, prepareGatewayTurn, rememberGatewayTurn } from "../gateway/orchestrator";
+import { executeGatewayTurn, isHeldOpen, prepareGatewayTurn, rememberGatewayTurn } from "../gateway/orchestrator";
 import { validateChatCompletionRequest } from "../validation";
 import { HttpError, mapErrorToResponse } from "../errors";
 import { SseWriter } from "../utils/sse";
@@ -54,6 +54,8 @@ async function handleChatCompletion(deps: GatewayDeps, req: Request, res: Respon
     const sse = new SseWriter(res);
     sse.send(buildRoleChunk(id, created, prepared.resolvedModelId));
 
+    let heldOpen = false;
+    let toolCallIndex = 0;
     try {
       const outcome = await executeGatewayTurn(deps, prepared, {
         abortSignal: abortController.signal,
@@ -66,11 +68,15 @@ async function handleChatCompletion(deps: GatewayDeps, req: Request, res: Respon
             sse.send(buildDeltaChunk(id, created, prepared.resolvedModelId, { reasoning_content: delta }));
           },
           onToolCallStarted: (call) => {
-            sse.send(buildToolCallStartChunk(id, created, prepared.resolvedModelId, call.id, call.name));
-            sse.send(buildToolCallArgumentsChunk(id, created, prepared.resolvedModelId, call.argumentsJson));
+            const index = toolCallIndex;
+            toolCallIndex += 1;
+            sse.send(buildToolCallStartChunk(id, created, prepared.resolvedModelId, call.id, call.name, index));
+            sse.send(buildToolCallArgumentsChunk(id, created, prepared.resolvedModelId, call.argumentsJson, index));
           },
         },
       });
+
+      heldOpen = isHeldOpen(prepared, outcome);
 
       if (!sse.isClosed) {
         sse.send(buildFinalChunk(id, created, prepared.resolvedModelId, outcome, includeUsage, promptEstimateText));
@@ -88,17 +94,24 @@ async function handleChatCompletion(deps: GatewayDeps, req: Request, res: Respon
         sse.done();
       }
     } finally {
-      prepared.releaseSemaphore();
+      // When the run is held open awaiting tool results, the held-run manager
+      // owns the concurrency slot until the run completes - releasing here
+      // would free it while the run is still alive.
+      if (!heldOpen) prepared.releaseSemaphore();
     }
     return;
   }
 
   let outcome: RunOutcome;
+  let heldOpen = false;
   try {
     outcome = await executeGatewayTurn(deps, prepared, { abortSignal: abortController.signal, sink: undefined, streaming: false });
-  } finally {
+    heldOpen = isHeldOpen(prepared, outcome);
+  } catch (err) {
     prepared.releaseSemaphore();
+    throw err;
   }
+  if (!heldOpen) prepared.releaseSemaphore();
 
   const response = buildChatCompletionResponse({
     id: newChatCompletionId(),

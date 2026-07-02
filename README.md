@@ -183,7 +183,9 @@ See [`.env.example`](./.env.example) for the full, documented list of every vari
 | `AUTH_KEY` | *(none)* | Optional bearer token clients must send to use this gateway; also doubles as the admin dashboard's password. Ignored in `passthrough` mode. |
 | `CURSOR_RUNTIME` | `local` | `local` runs agents on this machine; `cloud` runs on a Cursor-hosted VM. The tool-calling bridge requires `local`. |
 | `DEFAULT_MODEL` | `composer-2.5` | Used when a client's requested model isn't in your account's catalog. |
-| `MAX_CONCURRENT_RUNS` | `8` | Global cap on simultaneous Cursor agent runs; extra requests queue. |
+| `MAX_CONCURRENT_RUNS` | `8` | Global cap on simultaneous Cursor agent runs; extra requests queue. A held run (awaiting tool results, see [Tool calling](#tool--function-calling)) holds its slot for the whole loop. |
+| `TOOL_BRIDGE_MODE` | `hold` | `hold` keeps one Cursor run alive across a whole tool loop (one metered request, native-app-like); `cancel` is the legacy one-run-per-step behavior. See [Tool calling](#tool--function-calling). |
+| `TOOL_RESULT_TIMEOUT_MS` | `900000` | Hold mode only: how long a run waits for the client's tool result before it's torn down (frees the agent + concurrency slot). |
 | `AUTO_OPEN_BROWSER` | `true` | Opens the dashboard automatically on startup - interactive (TTY) starts only; unattended launches (the [`autostart/`](autostart/README.md) toolkit, systemd, launchd, Docker, CI) never spawn a browser regardless of this setting. Set `false` to disable it even for interactive starts (the provided Dockerfile already does, belt-and-suspenders). |
 | `ADMIN_ALLOW_REMOTE` | `false` | Allows the admin dashboard/API from non-localhost addresses. See [Dashboard security](#dashboard-security). |
 
@@ -251,16 +253,30 @@ Sessions are cached in memory (`MAX_CACHED_AGENTS`, LRU-evicted) and expire afte
 
 ## Tool / function calling
 
-Cursor's SDK executes tools *inline*, inside its own agent loop - it has no concept of "pause and ask an external caller to run this function," which is exactly OpenAI's tool-calling contract. This gateway bridges the two:
+Cursor's SDK executes tools *inline*, inside its own agent loop - it has no concept of "pause and ask an external caller to run this function," which is exactly OpenAI's tool-calling contract. This gateway bridges the two, and it does so in one of two modes (`TOOL_BRIDGE_MODE`, default `hold`).
 
-1. Each of your `tools[]` function schemas is registered as a real Cursor `SDKCustomTool` (native tool-calling, not a prompt-based hack - the model sees a proper JSON schema and decides to call it like any other tool).
-2. When the model invokes one, the tool's `execute()` callback fires with the arguments. Instead of running anything (the gateway doesn't have your function's real implementation, only its schema), it captures the call and the gateway immediately cancels the underlying Cursor run.
-3. The captured call is returned to you as a standard OpenAI `tool_calls` response (`finish_reason: "tool_calls"`).
-4. You execute the tool yourself and send the result back as a normal `{"role": "tool", "tool_call_id": ..., "content": ...}` message on your next request (with the same `session_id`/history) - the gateway feeds it back into the same agent and the conversation continues, exactly like a normal OpenAI tool-calling loop.
+### Hold mode (default) - one Cursor run for the whole tool loop
 
-This was verified end-to-end against the real Cursor API (`npm run smoke:tools`), including the full round trip: model requests a tool, gateway returns `tool_calls`, caller submits the result, agent's follow-up correctly uses it.
+This mirrors how the native Cursor app behaves: a single agent run stays alive for an entire tool-calling conversation, so the whole loop is **one metered Cursor request**, not one per step.
 
-**Known limitation:** only the *first* tool call requested in a turn is captured, because the underlying run is cancelled as soon as it fires. If a turn wants to call multiple tools in parallel, only the first is observed. Sequential tool calls across multiple turns work fine. This bridge also only works when `CURSOR_RUNTIME=local` (custom tools are a local-agent-only SDK feature) - requests with `tools[]` are logged and ignored (tools stripped) if `CURSOR_RUNTIME=cloud` or `ENABLE_TOOL_BRIDGE=false`.
+1. Each of your `tools[]` function schemas is registered as a real Cursor `SDKCustomTool` (native tool-calling, not a prompt-based hack - the model sees a proper JSON schema).
+2. When the model invokes one, the tool's `execute()` callback fires - and the gateway *parks* it (returns a still-pending Promise). From Cursor's side the one run is simply "waiting on its tools," exactly as it would be in the app. The gateway returns the parked call(s) to you as a standard OpenAI `tool_calls` response (`finish_reason: "tool_calls"`) while keeping the run alive.
+3. You execute the tool yourself and send the result back as a normal `{"role": "tool", "tool_call_id": ..., "content": ...}` message on your next request. The gateway matches that `tool_call_id` to the still-open run, resolves the parked callback, and the *same run* continues.
+4. Repeat until the model stops calling tools; that final turn is `finish_reason: "stop"`. Every response in the loop carries the same `cursor_agent_id`.
+
+Because the run stays open, hold mode also captures **parallel tool calls** - if a turn invokes several tools at once, they're all returned together in one `tool_calls` array for you to answer in a single follow-up.
+
+Continuation is matched by `tool_call_id` (globally unique, echoed back in your `tool` message), so this works whether or not you set a `session_id` and regardless of whether you resend full history. A held run that never receives its result is torn down after `TOOL_RESULT_TIMEOUT_MS` (default 15 min) so a disappearing client can't pin an agent and its concurrency slot forever.
+
+Verified end-to-end against the real Cursor API (`npm run smoke:hold-mode`): a two-tool sequential loop, answered over three separate HTTP requests, runs entirely on **one** `cursor_agent_id`. The SDK's ability to keep a run alive across long, real cross-request gaps (30-45s each) and multiple sequential/parallel tool calls was confirmed with direct live tests before this was built.
+
+### Cancel mode (`TOOL_BRIDGE_MODE=cancel`) - legacy, one run per step
+
+The original behavior, kept as an escape hatch. On the first tool call the underlying run is **cancelled**; your follow-up request starts a fresh run that re-reads the (replayed) history. This turns one logical tool loop into N separately-metered Cursor runs and observes only the *first* tool call per turn (parallel calls in a single turn are lost, since the run is gone as soon as the first fires). Sequential tool calls across turns still work. Prefer `hold` unless you have a specific reason not to.
+
+### Common to both modes
+
+The bridge only works when `CURSOR_RUNTIME=local` (custom tools are a local-agent-only SDK feature) - requests with `tools[]` are logged and ignored (tools stripped) if `CURSOR_RUNTIME=cloud` or `ENABLE_TOOL_BRIDGE=false`. The classic single-turn round trip (`npm run smoke:tools`) and its streaming variant (`npm run smoke:streaming-tools`) pass under both modes.
 
 ## Security
 
@@ -356,7 +372,7 @@ Documented honestly rather than glossed over:
 
 - **No embeddings.** `POST /v1/embeddings` returns a `501` - Cursor's Agent SDK has no embeddings API. Fabricating a fake vector would silently corrupt any real similarity search, so this gateway refuses instead of pretending.
 - **`max_tokens`/`max_completion_tokens` are accepted but not enforced.** The Cursor SDK's `AgentOptions`/`SendOptions` expose no per-request output-token cap, so these fields currently have no effect on generation length.
-- **Tool calling captures only the first tool call per turn** (see [Tool / function calling](#tool--function-calling)).
+- **Tool calling:** in the default `hold` mode the whole tool loop is one Cursor run and parallel tool calls are captured; only the legacy `cancel` mode has the "first tool call per turn only" limitation (see [Tool / function calling](#tool--function-calling)).
 - **Sessions are in-memory and per-process.** They don't survive a restart or scale across multiple gateway instances; use `metadata.cursor_agent_id` if you need durability across processes.
 - **Cold-start replay cost.** When a conversation's agent isn't cached (first turn, TTL expiry, or eviction), prior history is folded into one text block for the model to read - this costs more input tokens than a warm, natively-continued agent would.
 - **Agent tool access.** See the sandboxing note under [Security](#security) - this is inherent to headless Cursor SDK agents, not specific to this gateway.
@@ -386,7 +402,9 @@ src/
   cursor/
     modelCatalog.ts         Cursor.models.list() caching + OpenAI model-id resolution + per-model context_length derivation
     sessionManager.ts       agent cache: resume / explicit session / auto-session / fresh; also lists/evicts sessions for the dashboard
-    toolBridge.ts            OpenAI tools[] -> Cursor SDKCustomTool + call capture
+    toolBridge.ts            OpenAI tools[] -> Cursor SDKCustomTool (cancel-mode capture)
+    heldToolGate.ts          hold-mode tool bridge: parks tool callbacks, batches parallel calls, resolves them from client results
+    heldRunManager.ts        keeps one Cursor run alive across an entire tool loop (one metered run), keyed by tool_call_id, with an inactivity timeout
     runController.ts         drives agent.send()/Run.stream(), text accumulation, tool-call race, cancellation
   translate/
     requestTranslator.ts     OpenAI messages[] -> the single turn text/images to send

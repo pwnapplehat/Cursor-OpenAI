@@ -54,6 +54,7 @@ export type CursorKeyMode = "server" | "passthrough";
 export type CursorRuntimeKind = "local" | "cloud";
 export type CursorAgentModeOption = "agent" | "plan";
 export type LogLevel = "fatal" | "error" | "warn" | "info" | "debug" | "trace" | "silent";
+export type ToolBridgeMode = "hold" | "cancel";
 
 export interface AppConfig {
   cursorApiKey: string | undefined;
@@ -75,6 +76,19 @@ export interface AppConfig {
   maxConcurrentRuns: number;
   requestTimeoutMs: number;
   toolBridgeEnabled: boolean;
+  /**
+   * How the OpenAI tool-calling bridge maps onto Cursor's inline-tool SDK:
+   * - `hold` (default): keep ONE Cursor run alive across the whole tool loop
+   *   by parking its tool callbacks until the client returns results - so a
+   *   multi-step tool conversation is one metered Cursor run, like the native
+   *   app. Captures parallel tool calls in a turn.
+   * - `cancel`: legacy behavior - cancel the run on the first tool call and
+   *   let the client's follow-up start a fresh run (N runs per loop, only the
+   *   first tool call per turn observed). Kept as an escape hatch.
+   */
+  toolBridgeMode: ToolBridgeMode;
+  /** Hold mode only: how long (ms) a held run may wait for the client's tool result before it's torn down, freeing the agent + concurrency slot. */
+  toolResultTimeoutMs: number;
   rateLimitWindowMs: number;
   rateLimitMax: number;
   logLevel: LogLevel;
@@ -102,6 +116,11 @@ export function validateRuntime(raw: string): CursorRuntimeKind {
 export function validateAgentMode(raw: string): CursorAgentModeOption {
   if (raw === "agent" || raw === "plan") return raw;
   throw new ConfigError(`CURSOR_AGENT_MODE must be "agent" or "plan", got "${raw}"`);
+}
+
+export function validateToolBridgeMode(raw: string): ToolBridgeMode {
+  if (raw === "hold" || raw === "cancel") return raw;
+  throw new ConfigError(`TOOL_BRIDGE_MODE must be "hold" or "cancel", got "${raw}"`);
 }
 
 export const LOG_LEVELS: LogLevel[] = ["fatal", "error", "warn", "info", "debug", "trace", "silent"];
@@ -157,6 +176,8 @@ export function loadConfig(): AppConfig {
     maxConcurrentRuns: optionalInt("MAX_CONCURRENT_RUNS", 8),
     requestTimeoutMs: optionalInt("REQUEST_TIMEOUT_MS", 300_000),
     toolBridgeEnabled: optionalBool("ENABLE_TOOL_BRIDGE", true),
+    toolBridgeMode: validateToolBridgeMode(optionalString("TOOL_BRIDGE_MODE", "hold")),
+    toolResultTimeoutMs: optionalInt("TOOL_RESULT_TIMEOUT_MS", 900_000),
     rateLimitWindowMs: optionalInt("RATE_LIMIT_WINDOW_MS", 60_000),
     rateLimitMax: optionalInt("RATE_LIMIT_MAX", 120),
     logLevel: validateLogLevel(optionalString("LOG_LEVEL", "info")),

@@ -7,6 +7,7 @@ import type { Logger } from "./logger";
 import type { ConfigStore } from "./configStore";
 import { ModelCatalog } from "./cursor/modelCatalog";
 import { SessionManager } from "./cursor/sessionManager";
+import { HeldRunManager } from "./cursor/heldRunManager";
 import { Semaphore } from "./utils/concurrency";
 import { requestIdMiddleware } from "./middleware/requestId";
 import { authMiddleware } from "./middleware/auth";
@@ -25,6 +26,7 @@ import { ActivityLog } from "./observability/activityLog";
 export interface AppInstance {
   app: Express;
   sessionManager: SessionManager;
+  heldRunManager: HeldRunManager;
 }
 
 const PUBLIC_DIR = path.join(__dirname, "..", "public");
@@ -36,9 +38,10 @@ export function buildApp(configStore: ConfigStore, log: Logger): AppInstance {
 
   const modelCatalog = new ModelCatalog(log);
   const sessionManager = new SessionManager(config, log);
+  const heldRunManager = new HeldRunManager(log);
   const semaphore = new Semaphore(config.maxConcurrentRuns);
   const activityLog = new ActivityLog();
-  const deps: GatewayDeps = { config, log, modelCatalog, sessionManager, semaphore, activityLog };
+  const deps: GatewayDeps = { config, log, modelCatalog, sessionManager, semaphore, activityLog, heldRunManager };
 
   app.use(
     helmet({
@@ -93,7 +96,7 @@ export function buildApp(configStore: ConfigStore, log: Logger): AppInstance {
     });
   });
 
-  app.use(createHealthRouter(config, sessionManager, semaphore));
+  app.use(createHealthRouter(config, sessionManager, semaphore, heldRunManager));
   app.use("/api/admin", loopbackOnlyMiddleware(config), createAdminRouter(deps, configStore));
 
   const v1Router = express.Router();
@@ -108,5 +111,5 @@ export function buildApp(configStore: ConfigStore, log: Logger): AppInstance {
   app.use(notFoundHandler());
   app.use(errorHandlerMiddleware());
 
-  return { app, sessionManager };
+  return { app, sessionManager, heldRunManager };
 }

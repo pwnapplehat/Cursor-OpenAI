@@ -3,17 +3,29 @@ export class Mutex {
   private tail: Promise<void> = Promise.resolve();
 
   async runExclusive<T>(fn: () => Promise<T>): Promise<T> {
+    const release = await this.acquire();
+    try {
+      return await fn();
+    } finally {
+      release();
+    }
+  }
+
+  /**
+   * Lower-level lock acquisition for work whose critical section can't be
+   * wrapped in a single callback - notably a held Cursor run that must stay
+   * locked across multiple HTTP requests (the tool-loop bridge in hold mode).
+   * Returns a release function the caller MUST invoke exactly once, in a
+   * `finally` or terminal cleanup path, or the mutex stays locked forever.
+   */
+  async acquire(): Promise<() => void> {
     let release!: () => void;
     const previous = this.tail;
     this.tail = new Promise<void>((resolve) => {
       release = resolve;
     });
     await previous;
-    try {
-      return await fn();
-    } finally {
-      release();
-    }
+    return release;
   }
 }
 

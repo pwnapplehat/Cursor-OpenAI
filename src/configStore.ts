@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { randomBytes } from "node:crypto";
-import { isSetupComplete, validateAgentMode, validateKeyMode, validateLogLevel, validateRuntime, type AppConfig } from "./config";
+import { isSetupComplete, validateAgentMode, validateKeyMode, validateLogLevel, validateRuntime, validateToolBridgeMode, type AppConfig } from "./config";
 import { HttpError } from "./errors";
 import type { Logger } from "./logger";
 
@@ -45,11 +45,12 @@ const EDITABLE_INT_FIELDS = [
   "maxCachedAgents",
   "maxConcurrentRuns",
   "requestTimeoutMs",
+  "toolResultTimeoutMs",
   "rateLimitWindowMs",
   "rateLimitMax",
   "port",
 ] as const;
-const EDITABLE_ENUM_FIELDS = ["cursorKeyMode", "cursorRuntime", "cursorAgentMode", "logLevel"] as const;
+const EDITABLE_ENUM_FIELDS = ["cursorKeyMode", "cursorRuntime", "cursorAgentMode", "logLevel", "toolBridgeMode"] as const;
 /** Handled by their own dedicated validation blocks in `validate()`, not the generic string/bool/int loops - listed here purely so `isEditableField`/config-import treats them as recognized, editable fields. */
 const EDITABLE_SPECIAL_FIELDS = ["authKey"] as const;
 
@@ -298,6 +299,16 @@ export class ConfigStore {
         patch.logLevel = validateLogLevel(value);
       } catch {
         throw HttpError.badRequest('"logLevel" is not a recognized log level', "logLevel");
+      }
+    }
+
+    if ("toolBridgeMode" in input) {
+      const value = input["toolBridgeMode"];
+      if (typeof value !== "string") throw HttpError.badRequest('"toolBridgeMode" must be a string', "toolBridgeMode");
+      try {
+        patch.toolBridgeMode = validateToolBridgeMode(value);
+      } catch {
+        throw HttpError.badRequest('"toolBridgeMode" must be "hold" or "cancel"', "toolBridgeMode");
       }
     }
 

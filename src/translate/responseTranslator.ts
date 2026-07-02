@@ -16,14 +16,15 @@ export function toOpenAIFinishReason(finishReason: RunOutcome["finishReason"]): 
 }
 
 export function buildToolCalls(outcome: RunOutcome): ChatCompletionToolCall[] | undefined {
-  if (!outcome.toolCall) return undefined;
-  return [
-    {
-      id: outcome.toolCall.id || newToolCallId(),
-      type: "function",
-      function: { name: outcome.toolCall.name, arguments: outcome.toolCall.argumentsJson },
-    },
-  ];
+  // Prefer the full set (hold mode can surface parallel calls); fall back to
+  // the single legacy slot for the cancel-mode path.
+  const calls = outcome.toolCalls && outcome.toolCalls.length > 0 ? outcome.toolCalls : outcome.toolCall ? [outcome.toolCall] : [];
+  if (calls.length === 0) return undefined;
+  return calls.map((call) => ({
+    id: call.id || newToolCallId(),
+    type: "function" as const,
+    function: { name: call.name, arguments: call.argumentsJson },
+  }));
 }
 
 export function buildChatCompletionResponse(params: {
@@ -89,15 +90,16 @@ export function buildToolCallStartChunk(
   model: string,
   toolCallId: string,
   name: string,
+  index = 0,
 ): ChatCompletionChunk {
   return buildDeltaChunk(id, created, model, {
-    tool_calls: [{ index: 0, id: toolCallId, type: "function", function: { name, arguments: "" } }],
+    tool_calls: [{ index, id: toolCallId, type: "function", function: { name, arguments: "" } }],
   });
 }
 
-export function buildToolCallArgumentsChunk(id: string, created: number, model: string, argumentsJson: string): ChatCompletionChunk {
+export function buildToolCallArgumentsChunk(id: string, created: number, model: string, argumentsJson: string, index = 0): ChatCompletionChunk {
   return buildDeltaChunk(id, created, model, {
-    tool_calls: [{ index: 0, function: { arguments: argumentsJson } }],
+    tool_calls: [{ index, function: { arguments: argumentsJson } }],
   });
 }
 

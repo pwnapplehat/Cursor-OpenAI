@@ -28,6 +28,8 @@ export function makeTestConfig(overrides: Partial<AppConfig> = {}): AppConfig {
     maxConcurrentRuns: 8,
     requestTimeoutMs: 300_000,
     toolBridgeEnabled: true,
+    toolBridgeMode: "hold",
+    toolResultTimeoutMs: 900_000,
     rateLimitWindowMs: 60_000,
     rateLimitMax: 120,
     logLevel: "silent",

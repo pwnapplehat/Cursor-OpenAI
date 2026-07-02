@@ -38,7 +38,8 @@
     "test": "node scripts/run-tests.mjs",
     "smoke": "tsx scripts/smoke-test.ts",
     "smoke:tools": "tsx scripts/smoke-test-tools.ts",
-    "smoke:streaming-tools": "tsx scripts/smoke-test-streaming-tools.ts"
+    "smoke:streaming-tools": "tsx scripts/smoke-test-streaming-tools.ts",
+    "smoke:hold-mode": "tsx scripts/smoke-test-hold-mode.ts"
   },
   "dependencies": {
     "@cursor/sdk": "^1.0.22",

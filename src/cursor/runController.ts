@@ -22,7 +22,10 @@ export interface RunOutcome {
   content: string;
   reasoningContent: string;
   finishReason: RunFinishReason;
+  /** The first captured tool call, if any. Retained for the legacy single-call path; prefer {@link toolCalls} when present. */
   toolCall: PendingToolCall | undefined;
+  /** All tool calls surfaced by this turn (hold mode can capture parallel calls). Absent/empty in the legacy cancel path beyond the first. */
+  toolCalls?: PendingToolCall[];
   usage: TokenUsage | undefined;
   agentId: string;
   runId: string;
@@ -107,7 +110,7 @@ export async function runTurn(params: RunTurnParams): Promise<RunOutcome> {
       }
 
       if (winner.value.done) break;
-      consumeMessage(winner.value.value, textAcc, reasoningAcc, sink, includeThinking, log);
+      consumeSdkMessage(winner.value.value, textAcc, reasoningAcc, sink, includeThinking, log);
     }
   } finally {
     clearTimeout(timeoutHandle);
@@ -165,7 +168,7 @@ export async function runTurn(params: RunTurnParams): Promise<RunOutcome> {
   };
 }
 
-function consumeMessage(
+export function consumeSdkMessage(
   message: SDKMessage,
   textAcc: TextAccumulator,
   reasoningAcc: TextAccumulator,

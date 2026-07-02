@@ -1,11 +1,17 @@
 import { Router } from "express";
 import type { SessionManager } from "../cursor/sessionManager";
+import type { HeldRunManager } from "../cursor/heldRunManager";
 import type { Semaphore } from "../utils/concurrency";
 import type { AppConfig } from "../config";
 
 const startedAt = Date.now();
 
-export function createHealthRouter(config: AppConfig, sessionManager: SessionManager, semaphore: Semaphore): Router {
+export function createHealthRouter(
+  config: AppConfig,
+  sessionManager: SessionManager,
+  semaphore: Semaphore,
+  heldRunManager: HeldRunManager,
+): Router {
   const router = Router();
 
   router.get("/health", (_req, res) => {
@@ -16,6 +22,8 @@ export function createHealthRouter(config: AppConfig, sessionManager: SessionMan
       keyMode: config.cursorKeyMode,
       sessions: sessionManager.stats(),
       concurrency: { inUse: semaphore.inUse, queued: semaphore.queued },
+      // Runs kept alive awaiting client tool results (hold-mode tool bridge).
+      heldRuns: heldRunManager.heldCount,
     });
   });
 
