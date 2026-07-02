@@ -79,7 +79,7 @@ export interface AppConfig {
   rateLimitMax: number;
   logLevel: LogLevel;
   logPretty: boolean;
-  /** Automatically opens the admin dashboard in the default browser on startup. Set to false for headless/Docker deployments. */
+  /** Automatically opens the admin dashboard in the default browser on startup - interactive (TTY) starts only; unattended launches (autostart/systemd/launchd/Docker) never spawn a browser regardless. Set to false to disable even for interactive starts. */
   autoOpenBrowser: boolean;
   /** When false (default), the /api/admin/* endpoints only accept requests from loopback addresses, regardless of AUTH_KEY. */
   adminAllowRemote: boolean;

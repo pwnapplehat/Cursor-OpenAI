@@ -98,7 +98,15 @@ async function main(): Promise<void> {
     log.info({ newPort, newHost }, "HTTP server rebind complete (new listener is up; old one is draining in the background)");
   });
 
-  if (config.autoOpenBrowser) {
+  // Only for interactive starts (start.bat/start.sh/npm start in a real
+  // terminal). When stdout isn't a TTY the process was launched by
+  // something unattended - the autostart toolkit's hidden logon launcher,
+  // systemd, launchd, cron, Docker, CI - and popping a browser tab at
+  // every boot/crash-restart would be wrong there. The TTY check has to
+  // live here (not just in launcher env vars) because settings.json
+  // persists autoOpenBrowser back over the environment once the dashboard
+  // has been used, so an env-only override can't cover that case.
+  if (config.autoOpenBrowser && process.stdout.isTTY) {
     openBrowser(dashboardUrl(config.host, actualPort), log);
   }
 

@@ -183,7 +183,7 @@ See [`.env.example`](./.env.example) for the full, documented list of every vari
 | `CURSOR_RUNTIME` | `local` | `local` runs agents on this machine; `cloud` runs on a Cursor-hosted VM. The tool-calling bridge requires `local`. |
 | `DEFAULT_MODEL` | `composer-2.5` | Used when a client's requested model isn't in your account's catalog. |
 | `MAX_CONCURRENT_RUNS` | `8` | Global cap on simultaneous Cursor agent runs; extra requests queue. |
-| `AUTO_OPEN_BROWSER` | `true` | Opens the dashboard automatically on startup. Set `false` for Docker/headless (the provided Dockerfile already does). |
+| `AUTO_OPEN_BROWSER` | `true` | Opens the dashboard automatically on startup - interactive (TTY) starts only; unattended launches (the [`autostart/`](autostart/README.md) toolkit, systemd, launchd, Docker, CI) never spawn a browser regardless of this setting. Set `false` to disable it even for interactive starts (the provided Dockerfile already does, belt-and-suspenders). |
 | `ADMIN_ALLOW_REMOTE` | `false` | Allows the admin dashboard/API from non-localhost addresses. See [Dashboard security](#dashboard-security). |
 
 ## Endpoints
@@ -276,6 +276,8 @@ This is a self-hosted tool that uses the official Cursor SDK/API with your own k
 ## Deployment
 
 **Just running it locally:** `start.bat` (Windows) or `./start.sh` (Mac/Linux) - see [Quick start](#quick-start).
+
+**Start automatically at login (hidden, background):** see [`autostart/`](autostart/README.md) - per-OS install/uninstall/status scripts (Windows Startup-folder shortcut, Linux `systemd --user` with a cron fallback, macOS launchd) with single-instance and port-conflict guards, so the gateway survives reboots without a terminal window staying open.
 
 **Docker:**
 
