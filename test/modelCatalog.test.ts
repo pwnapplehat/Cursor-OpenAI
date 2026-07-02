@@ -12,6 +12,49 @@ const sampleModels: SDKModel[] = [
   { id: "claude-4.5-sonnet-thinking", displayName: "Claude 4.5 Sonnet Thinking", aliases: ["claude-sonnet"] },
 ];
 
+/** Mirrors the real Cursor catalog shape: context exposed as a parameter with per-variant values. */
+const modelsWithContext: SDKModel[] = [
+  {
+    id: "claude-sonnet-5",
+    displayName: "Sonnet 5",
+    aliases: ["sonnet-latest"],
+    parameters: [
+      {
+        id: "context",
+        displayName: "Context",
+        values: [
+          { value: "300k", displayName: "300K" },
+          { value: "1m", displayName: "1M" },
+        ],
+      },
+    ],
+    variants: [
+      { params: [{ id: "context", value: "300k" }], displayName: "Sonnet 5" },
+      { params: [{ id: "context", value: "1m" }], displayName: "Sonnet 5", isDefault: true },
+    ],
+  },
+  {
+    // Declares context values but no default variant pins one -> largest wins.
+    id: "gpt-5.5",
+    displayName: "GPT-5.5",
+    parameters: [
+      {
+        id: "context",
+        displayName: "Context",
+        values: [{ value: "272k" }, { value: "1m" }],
+      },
+    ],
+  },
+  {
+    // No context parameter at all -> field must be omitted, not invented.
+    id: "composer-2.5",
+    displayName: "Composer 2.5",
+    parameters: [
+      { id: "fast", displayName: "Fast", values: [{ value: "false" }, { value: "true" }] },
+    ],
+  },
+];
+
 function withMockedModelsList(fn: (calls: { count: number }) => Promise<SDKModel[]>, test_: (t: import("node:test").TestContext) => Promise<void>) {
   return async (t: import("node:test").TestContext) => {
     const originalList = Cursor.models.list;
@@ -109,6 +152,48 @@ test(
       const ids = list.data.map((m) => m.id).sort();
       assert.deepEqual(ids, ["claude-4.5-sonnet-thinking", "claude-sonnet", "composer-2.5", "composer-2.5-fast"].sort());
       assert.ok(list.data.every((m) => m.object === "model" && m.owned_by === "cursor"));
+    },
+  ),
+);
+
+test(
+  "toOpenAIModelList reports context_length from the default variant's context parameter",
+  withMockedModelsList(
+    () => Promise.resolve(modelsWithContext),
+    async () => {
+      const catalog = new ModelCatalog(silentLog);
+      const list = await catalog.toOpenAIModelList("key");
+      const sonnet = list.data.find((m) => m.id === "claude-sonnet-5");
+      assert.equal(sonnet?.context_length, 1_000_000, "default variant pins 1m");
+      const sonnetAlias = list.data.find((m) => m.id === "sonnet-latest");
+      assert.equal(sonnetAlias?.context_length, 1_000_000, "aliases inherit the model's context_length");
+    },
+  ),
+);
+
+test(
+  "toOpenAIModelList falls back to the largest declared context value when no default variant pins one",
+  withMockedModelsList(
+    () => Promise.resolve(modelsWithContext),
+    async () => {
+      const catalog = new ModelCatalog(silentLog);
+      const list = await catalog.toOpenAIModelList("key");
+      const gpt = list.data.find((m) => m.id === "gpt-5.5");
+      assert.equal(gpt?.context_length, 1_000_000, "272k vs 1m -> 1m");
+    },
+  ),
+);
+
+test(
+  "toOpenAIModelList omits context_length entirely for models with no context parameter",
+  withMockedModelsList(
+    () => Promise.resolve(modelsWithContext),
+    async () => {
+      const catalog = new ModelCatalog(silentLog);
+      const list = await catalog.toOpenAIModelList("key");
+      const composer = list.data.find((m) => m.id === "composer-2.5");
+      assert.ok(composer, "model present");
+      assert.equal("context_length" in (composer as object), false, "field omitted, not null/0");
     },
   ),
 );

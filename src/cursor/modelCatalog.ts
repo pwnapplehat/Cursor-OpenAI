@@ -77,14 +77,16 @@ export class ModelCatalog {
     const seen = new Set<string>();
     const data = [];
     for (const model of models) {
+      const contextLength = resolveContextLength(model);
+      const base = { object: "model" as const, created, owned_by: "cursor" };
       if (!seen.has(model.id)) {
         seen.add(model.id);
-        data.push({ id: model.id, object: "model" as const, created, owned_by: "cursor" });
+        data.push({ id: model.id, ...base, ...(contextLength !== undefined ? { context_length: contextLength } : {}) });
       }
       for (const alias of model.aliases ?? []) {
         if (!seen.has(alias)) {
           seen.add(alias);
-          data.push({ id: alias, object: "model" as const, created, owned_by: "cursor" });
+          data.push({ id: alias, ...base, ...(contextLength !== undefined ? { context_length: contextLength } : {}) });
         }
       }
     }
@@ -107,4 +109,46 @@ function findModel(models: SDKModel[], requestedId: string): SDKModel | undefine
       model.id.toLowerCase() === normalized ||
       (model.aliases ?? []).some((alias) => alias.toLowerCase() === normalized),
   );
+}
+
+/** Parses Cursor's context parameter values ("300k", "1m", "128000") into a token count. */
+function parseContextValue(raw: string): number | undefined {
+  const match = /^(\d+(?:\.\d+)?)([km])?$/i.exec(raw.trim());
+  if (!match) return undefined;
+  const base = Number(match[1]);
+  if (!Number.isFinite(base) || base <= 0) return undefined;
+  const suffix = (match[2] ?? "").toLowerCase();
+  const multiplier = suffix === "m" ? 1_000_000 : suffix === "k" ? 1_000 : 1;
+  return Math.round(base * multiplier);
+}
+
+/**
+ * Derives the effective context window (tokens) for a catalog model.
+ *
+ * Cursor exposes context as a model *parameter* (id `"context"`, values like
+ * `"300k"` / `"1m"`) with per-variant assignments. Requests through this
+ * gateway send only a model id - no params - so Cursor serves the variant
+ * marked `isDefault`; that variant's context value is the number that's
+ * actually true for gateway traffic. Falls back to the largest declared
+ * context value when no default variant pins one, and to `undefined` (field
+ * omitted) for models with no context parameter at all - honest omission
+ * beats a made-up number.
+ */
+function resolveContextLength(model: SDKModel): number | undefined {
+  const contextParam = (model.parameters ?? []).find((p) => p.id === "context");
+  if (!contextParam) return undefined;
+
+  const defaultVariant = (model.variants ?? []).find((v) => v.isDefault);
+  const defaultContext = defaultVariant?.params.find((p) => p.id === "context")?.value;
+  if (defaultContext !== undefined) {
+    const parsed = parseContextValue(defaultContext);
+    if (parsed !== undefined) return parsed;
+  }
+
+  let max: number | undefined;
+  for (const value of contextParam.values) {
+    const parsed = parseContextValue(value.value);
+    if (parsed !== undefined && (max === undefined || parsed > max)) max = parsed;
+  }
+  return max;
 }

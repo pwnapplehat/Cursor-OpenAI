@@ -181,6 +181,17 @@ export interface OpenAIModel {
   object: "model";
   created: number;
   owned_by: string;
+  /**
+   * Non-standard extension: the context window (in tokens) of the variant
+   * Cursor serves by default for this model, derived from the Cursor
+   * catalog's `context` parameter. Widely-adopted convention (vLLM, Ollama,
+   * OpenRouter, LM Studio all expose it under this or a sibling name), and
+   * OpenAI-compatible clients that don't know it simply ignore it. Agent
+   * frameworks like Hermes probe /v1/models for exactly this field to size
+   * their context-compression thresholds correctly. Omitted when Cursor
+   * doesn't declare a context parameter for the model.
+   */
+  context_length?: number;
 }
 
 export interface OpenAIModelList {
