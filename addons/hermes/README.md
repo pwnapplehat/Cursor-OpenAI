@@ -163,6 +163,10 @@ For Discord, WhatsApp, Slack, Signal, email and the rest, run
 This addon's gateway-side work (provider, models, timeouts) is
 platform-agnostic and applies to every platform equally.
 
+Want your agent to actually *remember* you across sessions and platforms?
+Pair this with the [mem0 addon](../mem0/README.md) - self-hosted long-term
+memory with fact extraction through this same gateway.
+
 ## Manual setup (no scripts)
 
 Every scripted step, by hand. Hermes must be installed

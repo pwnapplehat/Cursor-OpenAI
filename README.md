@@ -360,6 +360,23 @@ Telegram / Discord / CLI ──▶ Hermes Agent ──▶ this gateway (localhos
 
 Keep it personal: usage through the addon is normal plan usage under Cursor's supported SDK use case, but the same [Terms of Service](#cursor-terms-of-service) boundary applies - don't resell access.
 
+### mem0 - self-hosted long-term memory for Hermes
+
+[`addons/mem0/`](addons/mem0/README.md) gives the Hermes addon persistent memory via [mem0](https://github.com/mem0ai/mem0) OSS, with every component running on your own machine - tell your agent something once and it remembers it across sessions, days, and platforms:
+
+```
+Hermes ── mem0 plugin ──▶ LLM fact extraction  -> this gateway (your Cursor subscription)
+                          Embeddings           -> Ollama, local (nomic-embed-text, free)
+                          Vector storage       -> Qdrant embedded mode (a local folder)
+```
+
+- **Automatic fact extraction** - after each conversation turn, mem0 distills durable facts from the chatter through a gateway LLM call (`composer-2.5` by default - fast/cheap is right for the job), deduplicates them against existing memories, and indexes them for semantic recall. The agent also gets explicit `mem0_search` / `mem0_add` / `mem0_list` / `mem0_update` / `mem0_delete` tools.
+- **One-command setup** - `setup.ps1` / `setup.sh` health-checks the gateway and Hermes, verifies Ollama (starts it if stopped, pulls the embedding model, resolves embedding dimensions - live-probed for models it doesn't know), installs the Python deps into Hermes' own bundled venv via `uv` (it has no `pip` - a real trap), writes `mem0.json`, activates the provider, and runs a store→search→delete self-test that deliberately makes **no** LLM call, so verifying the setup costs zero Cursor requests.
+- **Guards against real failure modes it found** - mem0's OpenAI client silently reroutes to OpenRouter whenever `OPENROUTER_API_KEY` exists in the environment (ignoring your base URL); the setup detects and flags this. It also pins `MEM0_TELEMETRY=false` - a self-hosted memory store shouldn't phone home.
+- **Why a script instead of Hermes' own wizard** - `hermes memory setup mem0 --mode oss` cannot point mem0's LLM at a custom OpenAI-compatible base URL, so the gateway wiring has to be written to `mem0.json` directly; the addon README documents the exact file for manual setup.
+
+The honest cost model: each remembered turn spends one small metered Cursor request on extraction, and embedded Qdrant is single-process (run one Hermes process at a time, or switch the config to a Qdrant server - documented in the addon's troubleshooting table).
+
 ## Testing and verification
 
 ```bash
@@ -451,6 +468,8 @@ scripts/
   run-tests.mjs             portable, shell/Node-version-independent *.test.ts file discovery for `npm test` (see Cross-platform support)
   check-running.mjs          start.bat/start.sh pre-flight: detects an already-running gateway (same port precedence as the gateway itself) so the launchers open its dashboard instead of double-starting
   smoke-test*.ts             real end-to-end smoke tests against a running instance
+autostart/                  per-OS start-at-login toolkit (install/uninstall/status/runner scripts) - see Deployment above
+addons/                     optional integrations that configure external tools to use this gateway (Hermes Agent, mem0 memory) - see Addons above
 start.bat / start.sh        one-click launchers for non-technical users (install, build, run, open browser)
 .gitattributes              forces LF line endings in the repository regardless of a contributor's local git config
 ```

@@ -9,6 +9,7 @@ only configure the external tool to talk to your running gateway.
 | Addon | What it gives you |
 |-------|-------------------|
 | [`hermes/`](hermes/README.md) | [Hermes Agent](https://hermes-agent.nousresearch.com) (NousResearch) as a full autonomous agent on top of your Cursor subscription - Telegram/Discord/WhatsApp messaging, tool use (terminal, browser, files), cron jobs, persistent memory, and long-running sessions that survive for days. |
+| [`mem0/`](mem0/README.md) | Self-hosted long-term memory for Hermes via [mem0](https://github.com/mem0ai/mem0) OSS - automatic fact extraction through this gateway (your Cursor subscription), local Ollama embeddings, local Qdrant vector storage. Tell your agent something once, it remembers it across every session and platform. |
 
 ## Addon conventions
 
