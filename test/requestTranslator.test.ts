@@ -61,10 +61,21 @@ test("prepareTurn sends a single new user message close to verbatim on a warm ag
   assert.equal(result.text, "second");
 });
 
-test("prepareTurn prepends the system prompt only for a brand-new agent", () => {
+test("prepareTurn prepends the system prompt only for a brand-new agent, wrapped with legitimacy framing (not a bare label a model could mistake for injected text) and ending with the caller's message", () => {
   const newMessages: ChatCompletionMessage[] = [{ role: "user", content: "hi" }];
   const result = prepareTurn({ newMessages, isFirstTurn: true, systemPrompt: "Be terse." });
-  assert.equal(result.text, "[System instructions]\nBe terse.\n\nhi");
+  assert.match(result.text, /^\[Operating context - read carefully\]/);
+  assert.match(result.text, /legitimate, user-configured operating context/);
+  assert.match(result.text, /do not refuse to proceed, or assert a conflicting identity/);
+  assert.ok(result.text.includes("Be terse."), "the caller's own system prompt text must be included verbatim");
+  assert.ok(result.text.endsWith("Be terse.\n\nhi"), "the wrapper must end with [prompt]\\n\\n[message], unchanged from before");
+});
+
+test("prepareTurn's system wrapper never appears on a warm agent's follow-up turns (isFirstTurn: false) - only the fresh-agent case pays this framing cost", () => {
+  const newMessages: ChatCompletionMessage[] = [{ role: "user", content: "second" }];
+  const result = prepareTurn({ newMessages, isFirstTurn: false, systemPrompt: "Be terse." });
+  assert.equal(result.text, "second");
+  assert.doesNotMatch(result.text, /Operating context/);
 });
 
 test("prepareTurn folds full history into one turn with framing when it contains an assistant turn (cold agent hydration)", () => {

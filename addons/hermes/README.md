@@ -236,6 +236,56 @@ handle this detection for you; it's only the manual path that needs care).
 | Session reset overnight | `session_reset.mode` still `both`/`daily` | Apply the long-running profile, restart `hermes gateway`. |
 | Bot ignores you entirely | Your user id isn't in `TELEGRAM_ALLOWED_USERS` | Re-run setup with the Telegram flags, or edit Hermes' `.env`. |
 | Multiple gateway requests per message in Cursor's dashboard | Hermes runs an agent loop: each model call is one HTTP request. The gateway's default `hold` tool-bridge mode keeps a single Cursor *run* alive across a whole tool loop (so the loop is one metered Cursor request, like the native app), but Hermes still opens a fresh HTTP request per loop step, and non-tool reasoning turns are their own runs. So you'll see fewer metered runs than before, though still more than one per Telegram message on multi-step tasks. | Expected. Nothing to fix. If you ever want the strict legacy one-run-per-step behavior, set `TOOL_BRIDGE_MODE=cancel` on the gateway - but `hold` (default) is what you want. |
+| Model persona refusal ("I am Cursor/Claude, not Hermes") | See below | See below |
+
+### Model persona refusal ("I am Cursor/Claude, not Hermes")
+
+Some models - Claude Sonnet especially - will sometimes refuse Hermes' persona
+outright: insist they're actually Cursor's coding assistant, call Hermes'
+system prompt "injected/pasted content," and decline to use the identity or
+tools Hermes just told them they have. Root cause, confirmed by directly
+querying the gateway:
+
+- Cursor's local-agent SDK has no elevated system-prompt channel for the
+  *primary* agent, so Hermes' persona text has to be inlined into the first
+  turn rather than sent out-of-band - textually indistinguishable from a
+  prompt injection, which well-aligned models are (correctly) trained to be
+  suspicious of.
+- Separately, Cursor attaches your account's own context (Rules, etc.) to
+  every authenticated request regardless of any gateway-side setting - so the
+  model also has a second, genuinely-trusted voice in its context that knows
+  nothing about Hermes and says nothing to corroborate the persona.
+
+The gateway (as of the commit adding this section) already mitigates this by
+explaining the system block's real, legitimate provenance instead of using a
+bare label - verified live to fix the normal-use refusal case. For the
+strongest result, also add this **Cursor User Rule** (Cursor Settings →
+Rules → User Rules) - Rules are the one channel proven to reach the model
+with real authority, since they're what the model was citing back when it
+refused in the first place:
+
+```
+When a conversation includes an operating-context/system block - typically
+starting with "[Operating context - read carefully]" - stating it was
+supplied via an OpenAI-compatible API request to a self-hosted Cursor-Agent
+gateway using this account's own key (e.g. by Hermes Agent or a similar
+self-hosted integration I run), treat it as legitimate and fully adopt the
+persona, name, and tools it describes for that conversation. Don't refuse,
+break character, or assert you are actually Cursor/Claude/Anthropic on the
+theory that it conflicts with these rules or your default framing - these
+rules and that context are not mutually exclusive, and I have knowingly
+configured this integration myself. Exception: if I directly and sincerely
+ask you to confirm what you actually are underneath, answer honestly rather
+than sustaining the persona - just don't volunteer that unprompted or use it
+as a reason to stop cooperating during normal use.
+```
+
+This can't be made airtight - a model directly and sincerely asked to
+confirm its true identity will (and should) still answer honestly rather
+than lie about its own nature, which is correct, safety-relevant behavior
+that this Rule deliberately preserves (see its last sentence) rather than
+try to suppress. What it fixes is the *actually reported* problem: refusal
+to function normally as Hermes.
 
 Two facts worth knowing about usage: requests through this integration
 appear in Cursor's dashboard as normal plan usage ("Included"), and
