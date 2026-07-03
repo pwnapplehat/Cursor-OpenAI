@@ -24,6 +24,17 @@ test("validateChatCompletionRequest rejects a message with an invalid role", () 
   );
 });
 
+test("validateChatCompletionRequest accepts the developer role (OpenAI system-role successor sent for GPT-5-family models)", () => {
+  const req = validateChatCompletionRequest({
+    model: "gpt-5.4-mini",
+    messages: [
+      { role: "developer", content: "You are a helpful agent." },
+      { role: "user", content: "hi" },
+    ],
+  });
+  assert.equal(req.messages[0]!.role, "developer");
+});
+
 test("validateChatCompletionRequest allows null content on assistant/tool messages", () => {
   const req = validateChatCompletionRequest({
     model: "auto",

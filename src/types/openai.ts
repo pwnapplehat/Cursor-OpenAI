@@ -5,7 +5,7 @@
  * client library while staying wire-compatible with it.
  */
 
-export type ChatRole = "system" | "user" | "assistant" | "tool" | "function";
+export type ChatRole = "system" | "developer" | "user" | "assistant" | "tool" | "function";
 
 export interface ChatCompletionContentPartText {
   type: "text";

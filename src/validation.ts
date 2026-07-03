@@ -1,7 +1,10 @@
 import { HttpError } from "./errors";
 import type { ChatCompletionMessage, ChatCompletionRequest, ChatRole, CompletionRequest } from "./types/openai";
 
-const VALID_ROLES: ChatRole[] = ["system", "user", "assistant", "tool", "function"];
+// "developer" is OpenAI's successor to "system" for reasoning-model requests
+// (their API treats the two as aliases); clients like Hermes send it for
+// GPT-5-family models, so an OpenAI-compatible surface must accept it.
+const VALID_ROLES: ChatRole[] = ["system", "developer", "user", "assistant", "tool", "function"];
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);

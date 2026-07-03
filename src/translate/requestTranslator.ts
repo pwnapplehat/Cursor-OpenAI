@@ -23,7 +23,12 @@ export function extractImages(content: ChatCompletionMessage["content"]): SDKIma
   return images;
 }
 
-/** Splits `system` role messages out (concatenated into one prompt block) from the rest of the conversation. */
+/**
+ * Splits `system` role messages out (concatenated into one prompt block) from
+ * the rest of the conversation. `developer` is OpenAI's system-role successor
+ * for reasoning models (the two are aliases on their API) and is folded into
+ * the same block.
+ */
 export function extractSystemPrompt(messages: ChatCompletionMessage[]): {
   systemPrompt: string | undefined;
   rest: ChatCompletionMessage[];
@@ -31,7 +36,7 @@ export function extractSystemPrompt(messages: ChatCompletionMessage[]): {
   const systemParts: string[] = [];
   const rest: ChatCompletionMessage[] = [];
   for (const message of messages) {
-    if (message.role === "system") {
+    if (message.role === "system" || message.role === "developer") {
       const text = stringifyContent(message.content);
       if (text) systemParts.push(text);
     } else {
@@ -58,6 +63,7 @@ function formatHistoryMessage(message: ChatCompletionMessage): string {
     case "function":
       return `Function "${message.name ?? "unknown"}" result: ${content}`;
     case "system":
+    case "developer":
       return `System: ${content}`;
   }
 }

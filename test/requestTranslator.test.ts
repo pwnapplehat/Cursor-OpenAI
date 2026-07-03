@@ -20,6 +20,17 @@ test("extractSystemPrompt returns undefined system prompt when there are no syst
   assert.equal(rest.length, 1);
 });
 
+test("extractSystemPrompt folds developer messages into the system block (OpenAI reasoning-model alias)", () => {
+  const { systemPrompt, rest } = extractSystemPrompt([
+    { role: "developer", content: "You are a helpful agent." },
+    { role: "user", content: "Hi" },
+    { role: "system", content: "Never use emoji." },
+  ]);
+  assert.equal(systemPrompt, "You are a helpful agent.\n\nNever use emoji.");
+  assert.equal(rest.length, 1);
+  assert.equal(rest[0]!.role, "user");
+});
+
 test("stringifyContent handles string, array-of-parts, and null content", () => {
   assert.equal(stringifyContent("hello"), "hello");
   assert.equal(stringifyContent(null), "");
