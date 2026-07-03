@@ -1,5 +1,5 @@
 import { Cursor } from "@cursor/sdk";
-import type { SDKModel, ModelSelection } from "@cursor/sdk";
+import type { SDKModel, ModelSelection, ModelParameterValue, ModelVariant } from "@cursor/sdk";
 import type { OpenAIModelList } from "../types/openai";
 import type { Logger } from "../logger";
 
@@ -13,8 +13,9 @@ const CACHE_TTL_MS = 5 * 60 * 1000;
 /**
  * Caches `Cursor.models.list()` per API key (each key may see a different
  * catalog depending on plan/team) and resolves OpenAI-style requested model
- * strings against it - by exact id, by alias, or case-insensitively - before
- * falling back to the configured default model.
+ * strings against it - by exact id, by alias, by variant-suffixed id
+ * (`gpt-5.4-mini-xhigh` -> `gpt-5.4-mini` + `reasoning=xhigh`), or
+ * case-insensitively - before falling back to the configured default model.
  */
 export class ModelCatalog {
   private readonly cache = new Map<string, CacheEntry>();
@@ -54,6 +55,16 @@ export class ModelCatalog {
     const match = findModel(models, requestedId) ?? (requestedId === "auto" ? { id: "auto" } : undefined);
     if (match) return { id: match.id };
 
+    // Variant-suffixed id (the naming convention Cursor's own model slugs
+    // use): "<base-id-or-alias>-<value-or-flag>[-...]", e.g. gpt-5.4-mini-xhigh
+    // or claude-sonnet-5-thinking-1m. Resolves to a real ModelSelection with
+    // params so the SDK serves that exact variant.
+    const variantSelection = parseVariantSelection(models, requestedId);
+    if (variantSelection) {
+      this.log.info({ requestedId, resolved: variantSelection }, "resolved variant-suffixed model id to a parameterized selection");
+      return variantSelection;
+    }
+
     if (defaultModelId !== requestedId) {
       const defaultMatch = findModel(models, defaultModelId);
       if (defaultMatch) {
@@ -89,6 +100,20 @@ export class ModelCatalog {
           data.push({ id: alias, ...base, ...(contextLength !== undefined ? { context_length: contextLength } : {}) });
         }
       }
+      // Variant-suffixed ids (Cursor's own slug convention, e.g.
+      // gpt-5.4-mini-xhigh, claude-sonnet-5-thinking). Listed for variants
+      // that differ from the default in exactly ONE parameter - the useful,
+      // human-recognizable set - while the resolver additionally accepts
+      // arbitrary multi-parameter combos typed by hand.
+      for (const variant of model.variants ?? []) {
+        const suffix = singleDeltaVariantSuffix(model, variant);
+        if (!suffix) continue;
+        const variantId = `${model.id}-${suffix}`;
+        if (seen.has(variantId)) continue;
+        seen.add(variantId);
+        const variantContext = resolveVariantContextLength(variant) ?? contextLength;
+        data.push({ id: variantId, ...base, ...(variantContext !== undefined ? { context_length: variantContext } : {}) });
+      }
     }
     return { object: "list", data };
   }
@@ -109,6 +134,113 @@ function findModel(models: SDKModel[], requestedId: string): SDKModel | undefine
       model.id.toLowerCase() === normalized ||
       (model.aliases ?? []).some((alias) => alias.toLowerCase() === normalized),
   );
+}
+
+/**
+ * Parses a variant-suffixed model id into a parameterized {@link ModelSelection}.
+ *
+ * Cursor's own slug convention for variants: `<base>-<token>[-<token>...]`,
+ * where a token is either a parameter *value* (`xhigh` -> `reasoning=xhigh`,
+ * `1m` -> `context=1m`) or, for boolean parameters, the parameter *id*
+ * (`thinking` -> `thinking=true`). Matching is case-insensitive and prefers
+ * the longest base id/alias so `gpt-5.4-mini-xhigh` binds to `gpt-5.4-mini`,
+ * not to a shorter accidental prefix.
+ *
+ * When the parsed tokens correspond to a declared catalog variant (all parsed
+ * params match, all other params at their default-variant values), that
+ * variant's full param set is returned, so the SDK serves exactly the variant
+ * Cursor itself would. Unknown tokens make the whole parse fail - callers
+ * fall through to their default/passthrough behavior rather than guessing.
+ */
+function parseVariantSelection(models: SDKModel[], requestedId: string): ModelSelection | undefined {
+  const normalized = requestedId.trim().toLowerCase();
+
+  let best: { model: SDKModel; baseLength: number; params: ModelParameterValue[] } | undefined;
+  for (const model of models) {
+    const bases = [model.id, ...(model.aliases ?? [])];
+    for (const base of bases) {
+      const baseLower = base.toLowerCase();
+      if (!normalized.startsWith(`${baseLower}-`)) continue;
+      if (best && baseLower.length <= best.baseLength) continue;
+      const tokens = normalized.slice(baseLower.length + 1).split("-");
+      const params = parseVariantTokens(model, tokens);
+      if (params) best = { model, baseLength: baseLower.length, params };
+    }
+  }
+  if (!best) return undefined;
+
+  const declared = findDeclaredVariant(best.model, best.params);
+  return { id: best.model.id, params: declared ? [...declared.params] : best.params };
+}
+
+/** Maps suffix tokens to parameter assignments; undefined when any token doesn't decode. */
+function parseVariantTokens(model: SDKModel, tokens: string[]): ModelParameterValue[] | undefined {
+  const parameters = model.parameters ?? [];
+  if (parameters.length === 0 || tokens.length === 0) return undefined;
+
+  const params: ModelParameterValue[] = [];
+  const assigned = new Set<string>();
+  for (const token of tokens) {
+    if (!token) return undefined;
+    // Boolean-style parameter referenced by id: "...-thinking" -> thinking=true.
+    const byId = parameters.find(
+      (p) => p.id.toLowerCase() === token && p.values.some((v) => v.value === "true"),
+    );
+    const byValue = byId ? undefined : parameters.find((p) => p.values.some((v) => v.value.toLowerCase() === token));
+    const parameter = byId ?? byValue;
+    if (!parameter || assigned.has(parameter.id)) return undefined;
+    assigned.add(parameter.id);
+    params.push({ id: parameter.id, value: byId ? "true" : token });
+  }
+  return params;
+}
+
+/**
+ * Finds the declared variant the parsed params denote: every parsed param
+ * matches exactly, and every *other* param sits at its default-variant value.
+ */
+function findDeclaredVariant(model: SDKModel, parsed: ModelParameterValue[]): ModelVariant | undefined {
+  const variants = model.variants ?? [];
+  if (variants.length === 0) return undefined;
+  const defaults = new Map((variants.find((v) => v.isDefault)?.params ?? []).map((p) => [p.id, p.value]));
+  const wanted = new Map(parsed.map((p) => [p.id, p.value.toLowerCase()]));
+
+  return variants.find((variant) =>
+    variant.params.every((param) => {
+      const explicit = wanted.get(param.id);
+      if (explicit !== undefined) return param.value.toLowerCase() === explicit;
+      const defaultValue = defaults.get(param.id);
+      return defaultValue === undefined || param.value === defaultValue;
+    }) && [...wanted.keys()].every((id) => variant.params.some((p) => p.id === id)),
+  );
+}
+
+/**
+ * Suffix for listing a variant in /v1/models - only variants that differ from
+ * the default in exactly one parameter get a listed slug (`-xhigh`,
+ * `-thinking`, `-1m`); the resolver still accepts hand-typed multi-parameter
+ * combos. Returns undefined for the default variant, multi-parameter deltas,
+ * and boolean-off deltas (no natural slug token).
+ */
+function singleDeltaVariantSuffix(model: SDKModel, variant: ModelVariant): string | undefined {
+  const variants = model.variants ?? [];
+  const defaultVariant = variants.find((v) => v.isDefault);
+  if (!defaultVariant || variant === defaultVariant) return undefined;
+
+  const defaults = new Map(defaultVariant.params.map((p) => [p.id, p.value]));
+  const deltas = variant.params.filter((p) => defaults.get(p.id) !== p.value);
+  if (deltas.length !== 1) return undefined;
+
+  const delta = deltas[0]!;
+  if (delta.value === "true") return delta.id;
+  if (delta.value === "false") return undefined;
+  return delta.value;
+}
+
+/** Context length for a specific variant, when that variant pins a context param. */
+function resolveVariantContextLength(variant: ModelVariant): number | undefined {
+  const contextValue = variant.params.find((p) => p.id === "context")?.value;
+  return contextValue !== undefined ? parseContextValue(contextValue) : undefined;
 }
 
 /** Parses Cursor's context parameter values ("300k", "1m", "128000") into a token count. */

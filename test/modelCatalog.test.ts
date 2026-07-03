@@ -130,6 +130,131 @@ test(
   ),
 );
 
+/** Mirrors the real gpt-5.4-mini catalog entry: one "reasoning" parameter, five variants, medium default. */
+const modelsWithVariants: SDKModel[] = [
+  {
+    id: "gpt-5.4-mini",
+    displayName: "GPT-5.4 Mini",
+    aliases: ["gpt-mini"],
+    parameters: [
+      {
+        id: "reasoning",
+        displayName: "Reasoning",
+        values: [{ value: "none" }, { value: "low" }, { value: "medium" }, { value: "high" }, { value: "xhigh" }],
+      },
+    ],
+    variants: [
+      { params: [{ id: "reasoning", value: "none" }], displayName: "GPT-5.4 Mini" },
+      { params: [{ id: "reasoning", value: "low" }], displayName: "GPT-5.4 Mini" },
+      { params: [{ id: "reasoning", value: "medium" }], displayName: "GPT-5.4 Mini", isDefault: true },
+      { params: [{ id: "reasoning", value: "high" }], displayName: "GPT-5.4 Mini" },
+      { params: [{ id: "reasoning", value: "xhigh" }], displayName: "GPT-5.4 Mini" },
+    ],
+  },
+  {
+    id: "claude-sonnet-5",
+    displayName: "Sonnet 5",
+    parameters: [
+      { id: "thinking", displayName: "Thinking", values: [{ value: "false" }, { value: "true" }] },
+      { id: "context", displayName: "Context", values: [{ value: "300k" }, { value: "1m" }] },
+    ],
+    variants: [
+      {
+        params: [{ id: "thinking", value: "false" }, { id: "context", value: "300k" }],
+        displayName: "Sonnet 5",
+        isDefault: true,
+      },
+      { params: [{ id: "thinking", value: "true" }, { id: "context", value: "300k" }], displayName: "Sonnet 5 Thinking" },
+      { params: [{ id: "thinking", value: "false" }, { id: "context", value: "1m" }], displayName: "Sonnet 5 1M" },
+      { params: [{ id: "thinking", value: "true" }, { id: "context", value: "1m" }], displayName: "Sonnet 5 Thinking 1M" },
+    ],
+  },
+];
+
+test(
+  "resolveModelSelection decodes a value-suffixed variant id (gpt-5.4-mini-xhigh) into a parameterized selection",
+  withMockedModelsList(
+    () => Promise.resolve(modelsWithVariants),
+    async () => {
+      const catalog = new ModelCatalog(silentLog);
+      const result = await catalog.resolveModelSelection("key", "gpt-5.4-mini-xhigh", "composer-2.5");
+      assert.deepEqual(result, { id: "gpt-5.4-mini", params: [{ id: "reasoning", value: "xhigh" }] });
+    },
+  ),
+);
+
+test(
+  "resolveModelSelection decodes a boolean-suffixed variant id (claude-sonnet-5-thinking) via the parameter id",
+  withMockedModelsList(
+    () => Promise.resolve(modelsWithVariants),
+    async () => {
+      const catalog = new ModelCatalog(silentLog);
+      const result = await catalog.resolveModelSelection("key", "claude-sonnet-5-thinking", "composer-2.5");
+      assert.deepEqual(result, {
+        id: "claude-sonnet-5",
+        params: [{ id: "thinking", value: "true" }, { id: "context", value: "300k" }],
+      });
+    },
+  ),
+);
+
+test(
+  "resolveModelSelection decodes a multi-token variant id (claude-sonnet-5-thinking-1m)",
+  withMockedModelsList(
+    () => Promise.resolve(modelsWithVariants),
+    async () => {
+      const catalog = new ModelCatalog(silentLog);
+      const result = await catalog.resolveModelSelection("key", "claude-sonnet-5-thinking-1m", "composer-2.5");
+      assert.deepEqual(result, {
+        id: "claude-sonnet-5",
+        params: [{ id: "thinking", value: "true" }, { id: "context", value: "1m" }],
+      });
+    },
+  ),
+);
+
+test(
+  "resolveModelSelection decodes a variant suffix attached to an alias (gpt-mini-xhigh)",
+  withMockedModelsList(
+    () => Promise.resolve(modelsWithVariants),
+    async () => {
+      const catalog = new ModelCatalog(silentLog);
+      const result = await catalog.resolveModelSelection("key", "gpt-mini-xhigh", "composer-2.5");
+      assert.deepEqual(result, { id: "gpt-5.4-mini", params: [{ id: "reasoning", value: "xhigh" }] });
+    },
+  ),
+);
+
+test(
+  "resolveModelSelection does NOT treat an unknown suffix as a variant (falls back to default)",
+  withMockedModelsList(
+    () => Promise.resolve(modelsWithVariants),
+    async () => {
+      const catalog = new ModelCatalog(silentLog);
+      const result = await catalog.resolveModelSelection("key", "gpt-5.4-mini-turbo", "claude-sonnet-5");
+      assert.deepEqual(result, { id: "claude-sonnet-5" });
+    },
+  ),
+);
+
+test(
+  "toOpenAIModelList lists single-delta variant slugs with per-variant context_length",
+  withMockedModelsList(
+    () => Promise.resolve(modelsWithVariants),
+    async () => {
+      const catalog = new ModelCatalog(silentLog);
+      const list = await catalog.toOpenAIModelList("key");
+      const ids = list.data.map((m) => m.id);
+      for (const expected of ["gpt-5.4-mini-none", "gpt-5.4-mini-low", "gpt-5.4-mini-high", "gpt-5.4-mini-xhigh", "claude-sonnet-5-thinking", "claude-sonnet-5-1m"]) {
+        assert.ok(ids.includes(expected), `missing ${expected}`);
+      }
+      assert.ok(!ids.includes("gpt-5.4-mini-medium"), "default variant gets no extra slug");
+      const oneM = list.data.find((m) => m.id === "claude-sonnet-5-1m");
+      assert.equal(oneM?.context_length, 1_000_000, "variant slug carries its own context");
+    },
+  ),
+);
+
 test(
   "resolveModelSelection degrades to passthrough (not a crash) when Cursor.models.list fails and nothing is cached",
   withMockedModelsList(
