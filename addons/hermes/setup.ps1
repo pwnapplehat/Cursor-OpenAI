@@ -160,6 +160,30 @@ Write-Step "Registering the gateway as named provider 'cursor'"
 & hermes config set model.default $Model | Out-Null
 Write-Ok "model: provider=custom:cursor, base_url=$baseUrl, default=$Model"
 
+# Belt-and-suspenders: Hermes' /model switches and dashboard "reset to auto"
+# rewrite the model: block and strip base_url/api_key from it (observed
+# repeatedly on v0.18). The named custom_providers entry below covers normal
+# chat, but Hermes ALSO honors CUSTOM_BASE_URL / CUSTOM_API_KEY env fallbacks
+# (hermes_cli/runtime_provider.py) on every custom-provider code path -
+# including the bare "custom" label the stripped states degrade to. Pin them
+# in Hermes' .env, which no UI action ever rewrites, so endpoint resolution
+# survives any config.yaml mangling permanently.
+$hermesEnvPath0 = (& hermes config env-path 2>$null | Select-Object -Last 1)
+$hermesEnvPath0 = if ($hermesEnvPath0) { "$hermesEnvPath0".Trim() } else { '' }
+if (-not $hermesEnvPath0) { $hermesEnvPath0 = Join-Path (Split-Path -Parent $hermesConfigPath) '.env' }
+$envText0 = if (Test-Path -LiteralPath $hermesEnvPath0) { Get-Content -LiteralPath $hermesEnvPath0 -Raw } else { '' }
+foreach ($pair in @(@('CUSTOM_BASE_URL', $baseUrl), @('CUSTOM_API_KEY', $providerApiKey))) {
+    $name = $pair[0]; $value = $pair[1]
+    if ($envText0 -match "(?m)^\s*$name\s*=") {
+        $envText0 = $envText0 -replace "(?m)^\s*$name\s*=.*$", "$name=$value"
+    } else {
+        if ($envText0.Length -gt 0 -and -not $envText0.EndsWith("`n")) { $envText0 += "`n" }
+        $envText0 += "$name=$value`n"
+    }
+}
+Set-Content -LiteralPath $hermesEnvPath0 -Value $envText0 -Encoding utf8 -NoNewline
+Write-Ok "CUSTOM_BASE_URL / CUSTOM_API_KEY pinned in Hermes' .env (survives /model-switch config stripping)"
+
 # custom_providers needs care: `hermes config set` can navigate into an
 # EXISTING list index but cannot create/grow the list (it would create a
 # dict keyed '0' instead - a corrupt shape its own loaders reject).

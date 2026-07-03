@@ -21,6 +21,15 @@ custom_providers:
     base_url: http://localhost:8787/v1
     api_key: no-key-required
 
+# ALSO add to Hermes' .env (path: `hermes config env-path`) - NOT this file.
+# Hermes' /model switches and dashboard resets strip base_url/api_key from
+# the model: block above; these env fallbacks are honored on every
+# custom-provider code path and nothing ever rewrites .env, making endpoint
+# resolution permanently immune to that stripping:
+#
+#   CUSTOM_BASE_URL=http://localhost:8787/v1
+#   CUSTOM_API_KEY=no-key-required
+
 # --- Optional: long-running session profile ------------------------------------
 # For autonomous tasks that run for hours or days. Sessions never auto-reset
 # (no daily wipe, no idle wipe - /new and /reset still work manually), the

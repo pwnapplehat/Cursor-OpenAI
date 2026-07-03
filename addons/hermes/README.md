@@ -96,6 +96,13 @@ custom_providers:
     api_key: no-key-required
 ```
 
+And in Hermes' `.env` (path: `hermes config env-path`):
+
+```bash
+CUSTOM_BASE_URL=http://localhost:8787/v1
+CUSTOM_API_KEY=no-key-required
+```
+
 Why both blocks: `model:` selects what Hermes uses right now;
 `custom_providers:` is what makes `cursor` a *named* provider that Hermes
 probes live for its model list. With only bare `provider: custom`, Hermes'
@@ -112,6 +119,15 @@ switch to any Cursor model from chat:
 If the gateway has an `AUTH_KEY` set (see the main README's Security
 section), pass it to the setup script and it becomes the provider's
 `api_key` instead of `no-key-required`.
+
+Why the `.env` pins: Hermes' `/model` switches and the dashboard's
+"reset to auto" rewrite the `model:` block and strip `base_url`/`api_key`
+from it (observed repeatedly on v0.18). Normal chat survives via the named
+provider entry, but Hermes also honors `CUSTOM_BASE_URL` / `CUSTOM_API_KEY`
+as endpoint fallbacks on *every* custom-provider code path - including the
+bare `custom` label the stripped states degrade to. Nothing in Hermes' UI
+ever rewrites `.env`, so these two lines make endpoint resolution immune to
+any `config.yaml` mangling.
 
 ## Long-running session profile
 
@@ -181,6 +197,10 @@ hermes config set model.provider custom:cursor
 hermes config set model.base_url http://localhost:8787/v1
 hermes config set model.api_key no-key-required
 hermes config set model.default composer-2.5
+#    ...and add to Hermes' .env (path: hermes config env-path) - makes the
+#    endpoint survive Hermes' /model-switch config stripping:
+#    CUSTOM_BASE_URL=http://localhost:8787/v1
+#    CUSTOM_API_KEY=no-key-required
 
 # 2. Long-running profile (optional):
 hermes config set session_reset.mode none

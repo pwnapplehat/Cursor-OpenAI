@@ -149,6 +149,27 @@ hermes config set model.api_key "$PROVIDER_API_KEY" >/dev/null
 hermes config set model.default "$MODEL" >/dev/null
 ok "model: provider=custom:cursor, base_url=$BASE_URL, default=$MODEL"
 
+# Belt-and-suspenders: Hermes' /model switches and dashboard "reset to auto"
+# rewrite the model: block and strip base_url/api_key from it (observed
+# repeatedly on v0.18). The named custom_providers entry below covers normal
+# chat, but Hermes ALSO honors CUSTOM_BASE_URL / CUSTOM_API_KEY env fallbacks
+# (hermes_cli/runtime_provider.py) on every custom-provider code path -
+# including the bare "custom" label the stripped states degrade to. Pin them
+# in Hermes' .env, which no UI action ever rewrites, so endpoint resolution
+# survives any config.yaml mangling permanently.
+HERMES_ENV_EARLY="$(hermes config env-path 2>/dev/null | tail -n1 | tr -d '[:space:]')"
+[ -z "$HERMES_ENV_EARLY" ] && HERMES_ENV_EARLY="$(dirname "$HERMES_CONFIG")/.env"
+touch "$HERMES_ENV_EARLY"
+for kv in "CUSTOM_BASE_URL=$BASE_URL" "CUSTOM_API_KEY=$PROVIDER_API_KEY"; do
+  key="${kv%%=*}"
+  if grep -qE "^[[:space:]]*$key[[:space:]]*=" "$HERMES_ENV_EARLY"; then
+    sed "s|^[[:space:]]*$key[[:space:]]*=.*|$kv|" "$HERMES_ENV_EARLY" > "$HERMES_ENV_EARLY.tmp" && mv "$HERMES_ENV_EARLY.tmp" "$HERMES_ENV_EARLY"
+  else
+    echo "$kv" >> "$HERMES_ENV_EARLY"
+  fi
+done
+ok "CUSTOM_BASE_URL / CUSTOM_API_KEY pinned in Hermes' .env (survives /model-switch config stripping)"
+
 # custom_providers needs care: `hermes config set` can navigate into an
 # EXISTING list index but cannot create/grow the list. Scan the block.
 CURSOR_INDEX=-1
