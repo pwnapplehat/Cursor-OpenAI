@@ -59,10 +59,12 @@ The setup script:
    full Cursor catalog (80+ models) instead of just the one configured model.
 4. Optionally applies the **long-running session profile** (below) with
    `-LongRunning` / `--long-running`.
-5. Optionally wires up **Telegram** with
+5. Optionally enables **native vision** (below) with
+   `-NativeVision` / `--native-vision`.
+6. Optionally wires up **Telegram** with
    `-TelegramToken <token> -TelegramUser <id>` / `--telegram-token`,
    `--telegram-user`.
-6. Restarts the Hermes gateway if it was running, and verifies the finished
+7. Restarts the Hermes gateway if it was running, and verifies the finished
    setup end-to-end (config values re-read, gateway `/v1/models` reachable).
 
 Everything is idempotent - re-run it any time to repair or update the
@@ -80,6 +82,7 @@ guessing when it finds a config state it can't merge safely.
 | PowerShell | Bash | What it does |
 |---|---|---|
 | `-LongRunning` | `--long-running` | Apply the long-running session profile (see below) |
+| `-NativeVision` | `--native-vision` | Attach images directly to your main model instead of relaying them through a separate vision model - see [Native vision](#native-vision---screenshots-your-model-actually-sees). Only use with a vision-capable default model. |
 | `-TelegramToken <t>` | `--telegram-token <t>` | Set the Telegram bot token (from [@BotFather](https://t.me/BotFather)) |
 | `-TelegramUser <id>` | `--telegram-user <id>` | Allowlist your numeric Telegram user id (from [@userinfobot](https://t.me/userinfobot)) |
 | `-InstallHermes` | `--install-hermes` | Consent to running Hermes' official installer if Hermes is missing |
@@ -159,6 +162,44 @@ physics of finite context windows, not something any configuration removes.
 The gateway values are applied to the repo's `.env` (backed up first) and
 need a gateway restart to take effect - the setup script tells you if that's
 still pending, and on Windows offers the autostart toolkit's runner to do it.
+
+## Native vision - screenshots your model actually sees
+
+By default, Hermes cannot tell that a model served through a custom provider
+is vision-capable (its capability database doesn't cover custom routes), so
+every image - `computer_use` screenshots, `browser_vision` captures,
+`vision_analyze` calls, photos you send on Telegram - gets routed through a
+**separate auxiliary vision model**: one extra metered LLM call per image,
+and your main model only ever sees a *text description* of the screen, never
+the pixels.
+
+If your default model is vision-capable (Claude Sonnet, GPT-5-family, Gemini,
+Grok - most of the Cursor catalog), two settings fix that - applied for you
+by `-NativeVision` / `--native-vision`, or by hand:
+
+```bash
+hermes config set model.supports_vision true
+hermes config set agent.image_input_mode native
+```
+
+Now images attach **directly to your main model's context**: no auxiliary
+vision calls, and screenshot tool results ride the same held Cursor run as
+the rest of the tool loop - the gateway forwards base64 images inside tool
+results as real image blocks (see the main README's
+[Tool / function calling](../../README.md#tool--function-calling) section).
+Verified live: a Telegram "take a screenshot and describe my screen" turn
+runs as **one** metered Cursor request, with the model reading actual pixels.
+
+Two caveats, so you can decide deliberately:
+
+- `model.supports_vision: true` declares whatever model is *currently active*
+  vision-capable. If you regularly `/model`-switch to non-vision models,
+  leave it unset - Hermes recovers from a rejected image with a retry, but
+  that costs a round-trip.
+- If you explicitly configured `auxiliary.vision` (provider/model), that
+  override wins and screenshots still go to the auxiliary model - that's
+  Hermes honoring your explicit choice. Leave `auxiliary.vision.provider`
+  as `auto` to use the native path.
 
 ## Messaging platforms (Telegram shown; others analogous)
 
@@ -275,12 +316,16 @@ hermes config set auxiliary.compression.model composer-2.5   # match your model.
 #    ...and in the REPO's .env: REQUEST_TIMEOUT_MS=1800000, SESSION_TTL_MS=86400000
 #    then restart the gateway.
 
-# 3. Telegram (optional):
+# 3. Native vision (optional - only if your default model is vision-capable):
+hermes config set model.supports_vision true
+hermes config set agent.image_input_mode native
+
+# 4. Telegram (optional):
 hermes config set TELEGRAM_BOT_TOKEN <your-token>          # routes to Hermes' .env automatically
 #    then add to Hermes' .env (path: hermes config env-path):
 #    TELEGRAM_ALLOWED_USERS=<your-numeric-id>
 
-# 4. Restart & verify:
+# 5. Restart & verify:
 hermes gateway restart      # or just: hermes gateway
 hermes config show          # confirm the model/provider blocks
 ```
@@ -302,6 +347,8 @@ handle this detection for you; it's only the manual path that needs care).
 | Bot ignores you entirely | Your user id isn't in `TELEGRAM_ALLOWED_USERS` | Re-run setup with the Telegram flags, or edit Hermes' `.env`. |
 | Multiple gateway requests per message in Cursor's dashboard | Hermes runs an agent loop: each model call is one HTTP request. The gateway's default `hold` tool-bridge mode keeps a single Cursor *run* alive across a whole tool loop (so the loop is one metered Cursor request, like the native app), but Hermes still opens a fresh HTTP request per loop step, and non-tool reasoning turns are their own runs. So you'll see fewer metered runs than before, though still more than one per Telegram message on multi-step tasks. | Expected. Nothing to fix. If you ever want the strict legacy one-run-per-step behavior, set `TOOL_BRIDGE_MODE=cancel` on the gateway - but `hold` (default) is what you want. |
 | Model persona refusal ("I am Cursor/Claude, not Hermes") | The model is inlined a persona it can't distinguish from a prompt injection, and Cursor's own account context doesn't corroborate it | Add the [recommended Cursor User Rule](#recommended-cursor-user-rule) (own section above) - tested to fix it 6/6 |
+| Screenshots come back as text descriptions, or every image costs an extra metered request | Hermes doesn't know custom-provider models are vision-capable, so it routes images through a separate auxiliary vision model | Enable [native vision](#native-vision---screenshots-your-model-actually-sees) (`model.supports_vision true` + `agent.image_input_mode native`) |
+| `computer_use` captures return tiny/wrong-app garbage (e.g. `318x78` of the wrong window) | An orphaned `cua-driver.exe` from a dead parent process is wedging the capture backend | From an **admin** shell: `taskkill /F /IM cua-driver.exe` - Hermes respawns a clean driver on the next call |
 
 Two facts worth knowing about usage: requests through this integration
 appear in Cursor's dashboard as normal plan usage ("Included"), and

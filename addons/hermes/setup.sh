@@ -19,14 +19,16 @@
 # Usage:
 #   ./setup.sh
 #   ./setup.sh --long-running
+#   ./setup.sh --native-vision
 #   ./setup.sh --telegram-token 123:ABC --telegram-user 111222333
-#   ./setup.sh --install-hermes --long-running
+#   ./setup.sh --install-hermes --long-running --native-vision
 #
 # Exit codes: 0 = fully configured, 1 = prerequisite missing, 2 = partial
 # (something needs a manual step; details printed).
 set -uo pipefail
 
 LONG_RUNNING=0
+NATIVE_VISION=0
 TELEGRAM_TOKEN=""
 TELEGRAM_USER=""
 INSTALL_HERMES=0
@@ -37,6 +39,7 @@ PARTIAL=0
 while [ $# -gt 0 ]; do
   case "$1" in
     --long-running) LONG_RUNNING=1 ;;
+    --native-vision) NATIVE_VISION=1 ;;
     --telegram-token) TELEGRAM_TOKEN="${2:-}"; shift ;;
     --telegram-user) TELEGRAM_USER="${2:-}"; shift ;;
     --install-hermes) INSTALL_HERMES=1 ;;
@@ -259,7 +262,24 @@ if [ "$LONG_RUNNING" -eq 1 ]; then
   fi
 fi
 
-# --- 6. Telegram (optional) -----------------------------------------------------------------------
+# --- 6. Native vision (optional) --------------------------------------------------------------------
+if [ "$NATIVE_VISION" -eq 1 ]; then
+  step "Enabling native vision (images attach directly to the main model)"
+  # Hermes can't detect vision capability for custom-provider models (its
+  # capability DB doesn't cover custom routes), so without this override
+  # every image is relayed through a separate auxiliary vision model as a
+  # text description - one extra metered call per image. With it, images
+  # (computer_use/browser screenshots, Telegram photos, vision_analyze)
+  # ride the main model's context; the gateway forwards tool-result images
+  # as native image blocks inside the same held run. Only enable this when
+  # the default model is actually vision-capable - that's why it's opt-in.
+  hermes config set model.supports_vision true >/dev/null
+  hermes config set agent.image_input_mode native >/dev/null
+  ok "Hermes: model.supports_vision=true, agent.image_input_mode=native"
+  note "Only keep this on while your active model is vision-capable (Claude/GPT-5/Gemini/Grok etc)."
+fi
+
+# --- 7. Telegram (optional) -----------------------------------------------------------------------
 if [ -n "$TELEGRAM_TOKEN" ] || [ -n "$TELEGRAM_USER" ]; then
   step "Configuring Telegram"
   if [ -n "$TELEGRAM_TOKEN" ]; then
@@ -284,7 +304,7 @@ if [ -n "$TELEGRAM_TOKEN" ] || [ -n "$TELEGRAM_USER" ]; then
   fi
 fi
 
-# --- 7. Restart Hermes' gateway if it's running -----------------------------------------------------
+# --- 8. Restart Hermes' gateway if it's running -----------------------------------------------------
 step "Applying to a running Hermes gateway"
 if hermes gateway status 2>/dev/null | grep -qi 'running'; then
   note "Hermes gateway is running - restarting it to load the new config..."
@@ -294,7 +314,7 @@ else
   ok "Hermes gateway not currently running - nothing to restart. (Start it with: hermes gateway)"
 fi
 
-# --- 8. Verify -----------------------------------------------------------------------------------------
+# --- 9. Verify -----------------------------------------------------------------------------------------
 step "Verification"
 if grep -qE '^[[:space:]]*provider[[:space:]]*:[[:space:]]*custom:cursor[[:space:]]*$' "$HERMES_CONFIG"; then
   ok "model.provider = custom:cursor"

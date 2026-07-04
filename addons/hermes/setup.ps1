@@ -18,14 +18,16 @@
 # Usage:
 #   powershell -ExecutionPolicy Bypass -File setup.ps1
 #   powershell -ExecutionPolicy Bypass -File setup.ps1 -LongRunning
+#   powershell -ExecutionPolicy Bypass -File setup.ps1 -NativeVision
 #   powershell -ExecutionPolicy Bypass -File setup.ps1 -TelegramToken 123:ABC -TelegramUser 111222333
-#   powershell -ExecutionPolicy Bypass -File setup.ps1 -InstallHermes -LongRunning
+#   powershell -ExecutionPolicy Bypass -File setup.ps1 -InstallHermes -LongRunning -NativeVision
 #
 # Exit codes: 0 = fully configured, 1 = prerequisite missing, 2 = partial
 # (something needs a manual step; details printed).
 
 param(
     [switch] $LongRunning,
+    [switch] $NativeVision,
     [string] $TelegramToken = '',
     [string] $TelegramUser = '',
     [switch] $InstallHermes,
@@ -290,7 +292,24 @@ if ($LongRunning) {
     }
 }
 
-# --- 6. Telegram (optional) ------------------------------------------------------------
+# --- 6. Native vision (optional) --------------------------------------------------------
+if ($NativeVision) {
+    Write-Step "Enabling native vision (images attach directly to the main model)"
+    # Hermes can't detect vision capability for custom-provider models (its
+    # capability DB doesn't cover custom routes), so without this override
+    # every image is relayed through a separate auxiliary vision model as a
+    # text description - one extra metered call per image. With it, images
+    # (computer_use/browser screenshots, Telegram photos, vision_analyze)
+    # ride the main model's context; the gateway forwards tool-result images
+    # as native image blocks inside the same held run. Only enable this when
+    # the default model is actually vision-capable - that's why it's opt-in.
+    & hermes config set model.supports_vision true | Out-Null
+    & hermes config set agent.image_input_mode native | Out-Null
+    Write-Ok "Hermes: model.supports_vision=true, agent.image_input_mode=native"
+    Write-Note "Only keep this on while your active model is vision-capable (Claude/GPT-5/Gemini/Grok etc)."
+}
+
+# --- 7. Telegram (optional) ------------------------------------------------------------
 if ($TelegramToken -or $TelegramUser) {
     Write-Step "Configuring Telegram"
     if ($TelegramToken) {
@@ -317,7 +336,7 @@ if ($TelegramToken -or $TelegramUser) {
     }
 }
 
-# --- 7. Restart Hermes' gateway if it's running ---------------------------------------------
+# --- 8. Restart Hermes' gateway if it's running ---------------------------------------------
 Write-Step "Applying to a running Hermes gateway"
 $gwStatus = (& hermes gateway status 2>$null) -join "`n"
 if ($gwStatus -match 'running') {
@@ -328,7 +347,7 @@ if ($gwStatus -match 'running') {
     Write-Ok "Hermes gateway not currently running - nothing to restart. (Start it with: hermes gateway)"
 }
 
-# --- 8. Verify ---------------------------------------------------------------------------------
+# --- 9. Verify ---------------------------------------------------------------------------------
 Write-Step "Verification"
 $finalConfig = Get-Content -LiteralPath $hermesConfigPath -Raw
 if ($finalConfig -match '(?m)^\s*provider\s*:\s*custom:cursor\s*$') {
