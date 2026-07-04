@@ -226,7 +226,22 @@ if [ "$LONG_RUNNING" -eq 1 ]; then
   # carries its base_url/api_key.
   hermes config set auxiliary.compression.provider "custom:cursor" >/dev/null
   hermes config set auxiliary.compression.model "$MODEL" >/dev/null
-  ok "Hermes: session_reset.mode=none, agent.max_turns=300, auxiliary.compression = custom:cursor/$MODEL"
+  # Pin Hermes' other automatic housekeeping calls too. Each of these fires
+  # as its own SEPARATE metered gateway request and defaults to the MAIN
+  # model ("auto" = inherit the main runtime): background skill review every
+  # skills.creation_nudge_interval tool iterations (the big one on long
+  # tool-heavy tasks), session title generation on the first exchange, and
+  # the LLM command-approval guard on flagged shell commands. Pinning them
+  # to the summarizer model keeps long-running housekeeping off the primary
+  # (usually more expensive) model without disabling the features.
+  hermes config set auxiliary.background_review.provider "custom:cursor" >/dev/null
+  hermes config set auxiliary.background_review.model "$MODEL" >/dev/null
+  hermes config set auxiliary.title_generation.provider "custom:cursor" >/dev/null
+  hermes config set auxiliary.title_generation.model "$MODEL" >/dev/null
+  hermes config set auxiliary.approval.provider "custom:cursor" >/dev/null
+  hermes config set auxiliary.approval.model "$MODEL" >/dev/null
+  ok "Hermes: session_reset.mode=none, agent.max_turns=300"
+  ok "Hermes: auxiliary compression/background_review/title_generation/approval = custom:cursor/$MODEL"
 
   APPLIED=0
   if [ "$GATEWAY_UP" -eq 1 ]; then

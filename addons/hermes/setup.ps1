@@ -250,7 +250,22 @@ if ($LongRunning) {
     # carries its base_url/api_key.
     & hermes config set auxiliary.compression.provider "custom:cursor" | Out-Null
     & hermes config set auxiliary.compression.model $Model | Out-Null
-    Write-Ok "Hermes: session_reset.mode=none, agent.max_turns=300, auxiliary.compression = custom:cursor/$Model"
+    # Pin Hermes' other automatic housekeeping calls too. Each of these fires
+    # as its own SEPARATE metered gateway request and defaults to the MAIN
+    # model ("auto" = inherit the main runtime): background skill review every
+    # skills.creation_nudge_interval tool iterations (the big one on long
+    # tool-heavy tasks), session title generation on the first exchange, and
+    # the LLM command-approval guard on flagged shell commands. Pinning them
+    # to the summarizer model keeps long-running housekeeping off the primary
+    # (usually more expensive) model without disabling the features.
+    & hermes config set auxiliary.background_review.provider "custom:cursor" | Out-Null
+    & hermes config set auxiliary.background_review.model $Model | Out-Null
+    & hermes config set auxiliary.title_generation.provider "custom:cursor" | Out-Null
+    & hermes config set auxiliary.title_generation.model $Model | Out-Null
+    & hermes config set auxiliary.approval.provider "custom:cursor" | Out-Null
+    & hermes config set auxiliary.approval.model $Model | Out-Null
+    Write-Ok "Hermes: session_reset.mode=none, agent.max_turns=300"
+    Write-Ok "Hermes: auxiliary compression/background_review/title_generation/approval = custom:cursor/$Model"
 
     # Gateway side. Prefer the admin API (applies live + persists to
     # settings.json, which outranks .env); fall back to editing .env when the
