@@ -2,7 +2,7 @@ import type { ModelSelection, Run, SDKAgent, SDKCustomTool, SDKMessage, SDKUserM
 import type { Logger } from "../logger";
 import { TextAccumulator } from "../utils/textAccumulator";
 import { consumeSdkMessage, type RunSink } from "./runController";
-import type { HeldToolGate, HeldToolCall } from "./heldToolGate";
+import type { HeldToolGate, HeldToolCall, HeldToolResult } from "./heldToolGate";
 import { HttpError } from "../errors";
 import type { CursorAgentModeOption } from "../config";
 import { newToolCallId } from "../utils/ids";
@@ -150,7 +150,7 @@ export class HeldRunManager {
 
   async provideResultsAndContinue(
     agentId: string,
-    results: Array<{ id: string; content: string }>,
+    results: HeldToolResult[],
     opts: { sink: RunSink | undefined; abortSignal: AbortSignal | undefined; log: Logger },
   ): Promise<HeldRunSegment> {
     const state = this.held.get(agentId);
@@ -170,7 +170,8 @@ export class HeldRunManager {
     this.armAbort(state);
 
     const matched = state.gate.provideResults(results);
-    opts.log.debug({ agentId, provided: results.length, matched }, "provided tool results to held run");
+    const imageCount = results.reduce((n, r) => n + (r.images?.length ?? 0), 0);
+    opts.log.debug({ agentId, provided: results.length, matched, images: imageCount }, "provided tool results to held run");
 
     return this.pump(state, opts.sink);
   }

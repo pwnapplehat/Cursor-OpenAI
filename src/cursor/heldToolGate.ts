@@ -1,4 +1,4 @@
-import type { SDKCustomTool, SDKJsonValue } from "@cursor/sdk";
+import type { SDKCustomTool, SDKCustomToolContent, SDKImage, SDKJsonValue } from "@cursor/sdk";
 import type { ChatCompletionTool } from "../types/openai";
 import { newToolCallId } from "../utils/ids";
 
@@ -8,8 +8,44 @@ export interface HeldToolCall {
   argumentsJson: string;
 }
 
+/**
+ * A client-supplied result for a parked tool call. `images` carries any image
+ * parts the client embedded in its `tool` message (e.g. screenshots from a
+ * vision-capable tool loop); they are forwarded to the model as real image
+ * blocks rather than being flattened away with the text.
+ */
+export interface HeldToolResult {
+  id: string;
+  content: string;
+  images?: SDKImage[];
+}
+
 interface ParkedCall extends HeldToolCall {
-  resolveResult: (content: string) => void;
+  resolveResult: (content: SDKCustomToolContent[]) => void;
+}
+
+/**
+ * Converts a client tool result into SDK custom-tool content blocks. Base64
+ * images become real `image` blocks (the SDK delivers them to the model as
+ * pixels - this is what keeps screenshots visible to vision-capable models
+ * across a held tool loop). URL-only images cannot be expressed as
+ * `SDKCustomToolContent`, so they are referenced in a text block instead of
+ * being dropped silently.
+ */
+function toCustomToolContent(result: { content: string; images?: SDKImage[] }): SDKCustomToolContent[] {
+  const blocks: SDKCustomToolContent[] = [];
+  const images = result.images ?? [];
+  if (result.content.length > 0 || images.length === 0) {
+    blocks.push({ type: "text", text: result.content });
+  }
+  for (const image of images) {
+    if ("data" in image) {
+      blocks.push({ type: "image", data: image.data, mimeType: image.mimeType });
+    } else {
+      blocks.push({ type: "text", text: `[image: ${image.url}]` });
+    }
+  }
+  return blocks;
 }
 
 /**
@@ -51,10 +87,10 @@ export class HeldToolGate {
     return new Promise<void>((resolve) => this.waiters.push(resolve));
   }
 
-  private park(call: HeldToolCall): Promise<string> {
-    return new Promise<string>((resolve) => {
+  private park(call: HeldToolCall): Promise<SDKCustomToolContent[]> {
+    return new Promise<SDKCustomToolContent[]>((resolve) => {
       if (this.closed) {
-        resolve(HeldToolGate.ABANDONED_RESULT);
+        resolve([{ type: "text", text: HeldToolGate.ABANDONED_RESULT }]);
         return;
       }
       const parked: ParkedCall = { ...call, resolveResult: resolve };
@@ -89,13 +125,13 @@ export class HeldToolGate {
   }
 
   /** Resolves parked calls with their results; returns how many matched. Unmatched ids are ignored (the caller decides what that means). */
-  provideResults(results: Array<{ id: string; content: string }>): number {
+  provideResults(results: HeldToolResult[]): number {
     let matched = 0;
     for (const result of results) {
       const parked = this.parked.get(result.id);
       if (parked) {
         this.parked.delete(result.id);
-        parked.resolveResult(result.content);
+        parked.resolveResult(toCustomToolContent(result));
         matched += 1;
       }
     }
@@ -121,7 +157,7 @@ export class HeldToolGate {
     this.closed = true;
     for (const [id, parked] of this.parked) {
       this.parked.delete(id);
-      parked.resolveResult(HeldToolGate.ABANDONED_RESULT);
+      parked.resolveResult([{ type: "text", text: HeldToolGate.ABANDONED_RESULT }]);
     }
     this.notify();
   }
@@ -146,7 +182,7 @@ export class HeldToolGate {
         execute: async (args, context) => {
           const id = context.toolCallId ?? newToolCallId();
           const content = await this.park({ id, name: fn.name, argumentsJson: safeStringify(args) });
-          return { content: [{ type: "text", text: content }] };
+          return { content };
         },
       };
     }

@@ -5,9 +5,9 @@ import type { ModelCatalog } from "../cursor/modelCatalog";
 import { SessionManager, type SessionHandle } from "../cursor/sessionManager";
 import type { Semaphore } from "../utils/concurrency";
 import { ToolCallCapture, buildBridgedCustomTools } from "../cursor/toolBridge";
-import { HeldToolGate } from "../cursor/heldToolGate";
+import { HeldToolGate, type HeldToolResult } from "../cursor/heldToolGate";
 import type { HeldRunManager, HeldRunSegment } from "../cursor/heldRunManager";
-import { extractSystemPrompt, prepareTurn } from "../translate/requestTranslator";
+import { extractImages, extractSystemPrompt, prepareTurn } from "../translate/requestTranslator";
 import { runTurn, type RunOutcome, type RunSink } from "../cursor/runController";
 import { buildChatCompletionResponse } from "../translate/responseTranslator";
 import type { ChatCompletionMessage, ChatCompletionRequestMetadata, ChatCompletionTool } from "../types/openai";
@@ -30,7 +30,7 @@ const PARALLEL_TOOL_SETTLE_MS = 150;
 /** The trailing `tool` result messages of a continuation request, paired with the held run they belong to. */
 interface HeldContinuation {
   agentId: string;
-  results: Array<{ id: string; content: string }>;
+  results: HeldToolResult[];
 }
 
 export interface PreparedGatewayTurn {
@@ -71,12 +71,17 @@ function detectHeldContinuation(
   messages: ChatCompletionMessage[],
   apiKey: string,
 ): HeldContinuation | undefined {
-  const trailingToolResults: Array<{ id: string; content: string }> = [];
+  const trailingToolResults: HeldToolResult[] = [];
   for (let i = messages.length - 1; i >= 0; i -= 1) {
     const msg = messages[i]!;
     if (msg.role !== "tool") break;
     if (typeof msg.tool_call_id === "string" && msg.tool_call_id.length > 0) {
-      trailingToolResults.unshift({ id: msg.tool_call_id, content: contentToString(msg.content) });
+      const images = extractImages(msg.content);
+      trailingToolResults.unshift({
+        id: msg.tool_call_id,
+        content: contentToString(msg.content),
+        ...(images.length > 0 ? { images } : {}),
+      });
     }
   }
   if (trailingToolResults.length === 0) return undefined;

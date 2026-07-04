@@ -57,6 +57,64 @@ test("waitForBatch collects concurrently-dispatched parallel calls into one batc
   );
 });
 
+test("provideResults forwards base64 images as SDK image blocks alongside the text", async () => {
+  const gate = new HeldToolGate();
+  const tools = gate.buildCustomTools([weatherTool])!;
+  const executePromise = tools["get_weather"]!.execute({ city: "Paris" }, { toolCallId: "call_img" });
+  await gate.waitForBatch(5);
+
+  gate.provideResults([
+    {
+      id: "call_img",
+      content: "screenshot captured",
+      images: [{ data: "aGVsbG8=", mimeType: "image/png" }],
+    },
+  ]);
+
+  const result = await executePromise;
+  assert.deepEqual(result, {
+    content: [
+      { type: "text", text: "screenshot captured" },
+      { type: "image", data: "aGVsbG8=", mimeType: "image/png" },
+    ],
+  });
+});
+
+test("provideResults with an image-only result emits just the image block (no empty text)", async () => {
+  const gate = new HeldToolGate();
+  const tools = gate.buildCustomTools([weatherTool])!;
+  const executePromise = tools["get_weather"]!.execute({}, { toolCallId: "call_img2" });
+  await gate.waitForBatch(5);
+
+  gate.provideResults([
+    { id: "call_img2", content: "", images: [{ data: "QUJD", mimeType: "image/jpeg" }] },
+  ]);
+
+  const result = await executePromise;
+  assert.deepEqual(result, {
+    content: [{ type: "image", data: "QUJD", mimeType: "image/jpeg" }],
+  });
+});
+
+test("provideResults references URL images in a text block instead of dropping them", async () => {
+  const gate = new HeldToolGate();
+  const tools = gate.buildCustomTools([weatherTool])!;
+  const executePromise = tools["get_weather"]!.execute({}, { toolCallId: "call_url" });
+  await gate.waitForBatch(5);
+
+  gate.provideResults([
+    { id: "call_url", content: "see image", images: [{ url: "https://example.com/shot.png" }] },
+  ]);
+
+  const result = await executePromise;
+  assert.deepEqual(result, {
+    content: [
+      { type: "text", text: "see image" },
+      { type: "text", text: "[image: https://example.com/shot.png]" },
+    ],
+  });
+});
+
 test("provideResults only resolves matching ids and reports the matched count", async () => {
   const gate = new HeldToolGate();
   const tools = gate.buildCustomTools([weatherTool])!;
