@@ -492,6 +492,13 @@
               </div>
               <div class="settings-row-control"><input type="number" min="1" data-field="rateLimitWindowSeconds" class="input-field max-w-xs" /></div>
             </div>
+            <div class="settings-row">
+              <div class="settings-row-info">
+                <div class="settings-row-title">Max request body size (MB)</div>
+                <div class="settings-row-desc flex items-center gap-1.5"><span class="dot inline-block h-1.5 w-1.5 rounded-full bg-warning"></span> 1&ndash;1024. Oversized bodies get HTTP 413 (clients like Hermes compress their history and continue). Needs a restart to take effect.</div>
+              </div>
+              <div class="settings-row-control"><input type="number" min="1" max="1024" data-field="jsonBodyLimitMb" class="input-field max-w-xs" /></div>
+            </div>
             <div class="form-actions"><button type="submit" class="btn-primary">Save</button><span class="save-status"></span></div>
           </form>
 

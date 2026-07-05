@@ -759,6 +759,7 @@ function populateSettingsForms() {
   setField("requestTimeoutSeconds", msToSeconds(c.requestTimeoutMs));
   setField("rateLimitMax", c.rateLimitMax);
   setField("rateLimitWindowSeconds", msToSeconds(c.rateLimitWindowMs));
+  setField("jsonBodyLimitMb", c.jsonBodyLimitMb);
   setField("host", c.host);
   setField("port", c.port);
   setField("corsOrigin", c.corsOrigin);
@@ -913,6 +914,7 @@ function initSettingsForms() {
       requestTimeoutMs: secondsToMs(getField(forms.limits, "requestTimeoutSeconds").value),
       rateLimitMax: Number(getField(forms.limits, "rateLimitMax").value),
       rateLimitWindowMs: secondsToMs(getField(forms.limits, "rateLimitWindowSeconds").value),
+      jsonBodyLimitMb: Number(getField(forms.limits, "jsonBodyLimitMb").value),
     }),
     server: () => ({
       host: getField(forms.server, "host").value.trim(),

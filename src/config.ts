@@ -97,6 +97,15 @@ export interface AppConfig {
   autoOpenBrowser: boolean;
   /** When false (default), the /api/admin/* endpoints only accept requests from loopback addresses, regardless of AUTH_KEY. */
   adminAllowRemote: boolean;
+  /**
+   * Max JSON request body size in megabytes (default 25, in line with major
+   * provider APIs - e.g. Anthropic caps requests at 32 MB). Oversized bodies
+   * get a proper HTTP 413, which vision-heavy clients like Hermes use as the
+   * signal to compress their history and continue. Deliberately bounded:
+   * the body is buffered (and parsed) in RAM, so an unbounded limit would
+   * let a single request OOM a LAN-exposed gateway.
+   */
+  jsonBodyLimitMb: number;
 }
 
 function resolveDefaultWorkdirRoot(): string {
@@ -184,6 +193,7 @@ export function loadConfig(): AppConfig {
     logPretty: optionalBool("LOG_PRETTY", false),
     autoOpenBrowser: optionalBool("AUTO_OPEN_BROWSER", true),
     adminAllowRemote: optionalBool("ADMIN_ALLOW_REMOTE", false),
+    jsonBodyLimitMb: optionalInt("JSON_BODY_LIMIT_MB", 25),
   };
 
   if (config.maxCachedAgents < 1) {
@@ -191,6 +201,9 @@ export function loadConfig(): AppConfig {
   }
   if (config.maxConcurrentRuns < 1) {
     throw new ConfigError("MAX_CONCURRENT_RUNS must be at least 1");
+  }
+  if (config.jsonBodyLimitMb < 1 || config.jsonBodyLimitMb > 1024) {
+    throw new ConfigError("JSON_BODY_LIMIT_MB must be between 1 and 1024");
   }
 
   return config;

@@ -93,6 +93,14 @@ test("ConfigStore.update enforces maxCachedAgents/maxConcurrentRuns >= 1 and por
   await assert.rejects(() => store.update({ port: 70000 }), HttpError);
 });
 
+test("ConfigStore.update enforces jsonBodyLimitMb bounds (1-1024)", async () => {
+  const store = new ConfigStore(makeTestConfig(), silentLog);
+  await assert.rejects(() => store.update({ jsonBodyLimitMb: 0 }), HttpError);
+  await assert.rejects(() => store.update({ jsonBodyLimitMb: 2048 }), HttpError);
+  await store.update({ jsonBodyLimitMb: 50 });
+  assert.equal(store.config.jsonBodyLimitMb, 50);
+});
+
 test("ConfigStore.update validates enum-like fields (cursorKeyMode, cursorRuntime, cursorAgentMode, logLevel)", async () => {
   const store = new ConfigStore(makeTestConfig(), silentLog);
   await assert.rejects(() => store.update({ cursorKeyMode: "invalid" }), HttpError);

@@ -36,6 +36,7 @@ export function makeTestConfig(overrides: Partial<AppConfig> = {}): AppConfig {
     logPretty: false,
     autoOpenBrowser: false,
     adminAllowRemote: false,
+    jsonBodyLimitMb: 25,
     ...overrides,
   };
 }

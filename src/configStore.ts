@@ -49,6 +49,7 @@ const EDITABLE_INT_FIELDS = [
   "rateLimitWindowMs",
   "rateLimitMax",
   "port",
+  "jsonBodyLimitMb",
 ] as const;
 const EDITABLE_ENUM_FIELDS = ["cursorKeyMode", "cursorRuntime", "cursorAgentMode", "logLevel", "toolBridgeMode"] as const;
 /** Handled by their own dedicated validation blocks in `validate()`, not the generic string/bool/int loops - listed here purely so `isEditableField`/config-import treats them as recognized, editable fields. */
@@ -260,6 +261,12 @@ export class ConfigStore {
         throw HttpError.badRequest(`"${field}" must be a non-negative integer`, field);
       }
       patch[field] = value;
+    }
+
+    if (patch.jsonBodyLimitMb !== undefined && (patch.jsonBodyLimitMb < 1 || patch.jsonBodyLimitMb > 1024)) {
+      // Bounded because the JSON body is buffered (and parsed) fully in RAM -
+      // an effectively-unlimited value would let one request OOM the process.
+      throw HttpError.badRequest('"jsonBodyLimitMb" must be between 1 and 1024', "jsonBodyLimitMb");
     }
 
     if ("cursorKeyMode" in input) {

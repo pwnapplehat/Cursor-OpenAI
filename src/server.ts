@@ -68,7 +68,7 @@ export function buildApp(configStore: ConfigStore, log: Logger): AppInstance {
       },
     }),
   );
-  app.use(express.json({ limit: "25mb" }));
+  app.use(express.json({ limit: `${config.jsonBodyLimitMb}mb` }));
   app.use(requestIdMiddleware(log));
   app.use(
     pinoHttp({
