@@ -84,6 +84,27 @@ function typeForCursorError(err: CursorSdkError): string {
   return "server_error";
 }
 
+/**
+ * Detects Express body-parser / `http-errors`-style client errors (a 4xx
+ * `status` plus `expose: true`, the http-errors convention for "this message
+ * is safe to send to the client"). The critical case is the JSON body limit:
+ * `express.json({ limit })` rejects an oversized request with a 413
+ * PayloadTooLargeError ("request entity too large"). Without this branch it
+ * fell through to the generic 500 - and clients with dedicated 413 recovery
+ * (Hermes compresses its history and downgrades old screenshots to text,
+ * then retries) never triggered it, so long vision-heavy sessions died on a
+ * blind 500-retry loop instead of self-healing.
+ */
+function asExposedClientError(err: unknown): { status: number; message: string; code: string | null } | undefined {
+  if (!(err instanceof Error)) return undefined;
+  const candidate = err as Error & { status?: unknown; statusCode?: unknown; expose?: unknown; type?: unknown };
+  const status = typeof candidate.status === "number" ? candidate.status : typeof candidate.statusCode === "number" ? candidate.statusCode : undefined;
+  if (status === undefined || status < 400 || status >= 500 || candidate.expose !== true) return undefined;
+  // body-parser sets `type` to a dotted identifier (e.g. "entity.too.large").
+  const code = typeof candidate.type === "string" && candidate.type.length > 0 ? candidate.type.replace(/\./g, "_") : null;
+  return { status, message: err.message, code };
+}
+
 /** Maps any thrown error (gateway or Cursor SDK) into an HTTP status + OpenAI-shaped error body. */
 export function mapErrorToResponse(err: unknown): MappedError {
   if (err instanceof HttpError) {
@@ -108,6 +129,15 @@ export function mapErrorToResponse(err: unknown): MappedError {
       },
       isRetryable: err.isRetryable,
       logLevel: status >= 500 ? "error" : "warn",
+    };
+  }
+
+  const clientError = asExposedClientError(err);
+  if (clientError) {
+    return {
+      status: clientError.status,
+      body: { error: { message: clientError.message, type: "invalid_request_error", code: clientError.code, param: null } },
+      logLevel: "warn",
     };
   }
 

@@ -83,6 +83,47 @@ test("mapErrorToResponse surfaces isRetryable from Cursor SDK errors", () => {
   assert.equal(mapped.isRetryable, true);
 });
 
+test("mapErrorToResponse maps body-parser's 413 PayloadTooLargeError to a real 413 (not 500)", () => {
+  // Faithful shape of what express.json({ limit }) throws via raw-body /
+  // http-errors: message "request entity too large", status+statusCode 413,
+  // expose true, type "entity.too.large". Clients like Hermes key their
+  // payload-compression recovery on the 413 status specifically.
+  const err = Object.assign(new Error("request entity too large"), {
+    status: 413,
+    statusCode: 413,
+    expose: true,
+    type: "entity.too.large",
+  });
+  const mapped = mapErrorToResponse(err);
+  assert.equal(mapped.status, 413);
+  assert.equal(mapped.body.error.type, "invalid_request_error");
+  assert.equal(mapped.body.error.code, "entity_too_large");
+  assert.equal(mapped.body.error.message, "request entity too large");
+  assert.equal(mapped.logLevel, "warn");
+});
+
+test("mapErrorToResponse maps body-parser's 400 parse failure to a 400", () => {
+  const err = Object.assign(new Error("Unexpected token < in JSON"), {
+    status: 400,
+    statusCode: 400,
+    expose: true,
+    type: "entity.parse.failed",
+  });
+  const mapped = mapErrorToResponse(err);
+  assert.equal(mapped.status, 400);
+  assert.equal(mapped.body.error.code, "entity_parse_failed");
+});
+
+test("mapErrorToResponse does NOT treat non-exposed or 5xx status-bearing errors as client errors", () => {
+  // expose !== true -> internal detail, stays a generic 500.
+  const notExposed = Object.assign(new Error("internal thing"), { status: 413, expose: false });
+  assert.equal(mapErrorToResponse(notExposed).status, 500);
+
+  // 5xx status on a plain Error -> generic 500 branch, not the client-error branch.
+  const serverStatus = Object.assign(new Error("upstream blew up"), { status: 502, expose: true });
+  assert.equal(mapErrorToResponse(serverStatus).status, 500);
+});
+
 test("mapErrorToResponse falls back to a generic 500 for plain Error instances", () => {
   const mapped = mapErrorToResponse(new Error("something broke"));
   assert.equal(mapped.status, 500);
