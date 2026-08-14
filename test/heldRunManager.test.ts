@@ -159,6 +159,34 @@ test("a run with no tool calls completes in one start() and releases immediately
   assert.equal(manager.heldCount, 0);
 });
 
+test("provideResultsAndContinue resets segment accumulators so final content excludes prior narration", async () => {
+  const gate = new HeldToolGate();
+  const { agent } = makeFakeAgent((tools) =>
+    (async function* () {
+      yield assistantMessage("Committing the cron validation patch…");
+      const result = await tools["get_weather"]!.execute({ city: "Paris" }, { toolCallId: "call_1" });
+      yield assistantMessage(`Done: ${JSON.stringify(result)}`);
+    })(),
+  );
+
+  const manager = new HeldRunManager(silentLog);
+  const customTools = gate.buildCustomTools(weatherToolDef)!;
+
+  const first = await manager.start(startParams(agent, gate, customTools, () => undefined));
+  assert.equal(first.status, "tool_calls");
+  assert.match(first.content, /Committing the cron validation patch/);
+
+  const second = await manager.provideResultsAndContinue(
+    "agent-fake",
+    [{ id: "call_1", content: "18C sunny" }],
+    { sink: undefined, abortSignal: undefined, log: silentLog },
+  );
+
+  assert.equal(second.status, "final");
+  assert.match(second.content, /Done:/);
+  assert.doesNotMatch(second.content, /Committing the cron validation patch/, "prior-segment narration must not leak into the final answer");
+});
+
 test("provideResultsAndContinue throws for an unknown agent id", async () => {
   const manager = new HeldRunManager(silentLog);
   await assert.rejects(

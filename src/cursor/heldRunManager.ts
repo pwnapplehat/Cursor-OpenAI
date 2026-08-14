@@ -173,6 +173,13 @@ export class HeldRunManager {
     const imageCount = results.reduce((n, r) => n + (r.images?.length ?? 0), 0);
     opts.log.debug({ agentId, provided: results.length, matched, images: imageCount }, "provided tool results to held run");
 
+    // Each HTTP continuation is its own segment. Assistant text from prior
+    // segments was already returned on those turns (or is internal status
+    // narration). Reset accumulators so final content is only what the model
+    // emits after this tool round — not the whole run transcript.
+    state.textAcc = new TextAccumulator();
+    state.reasoningAcc = new TextAccumulator();
+
     return this.pump(state, opts.sink);
   }
 
