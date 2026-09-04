@@ -55,6 +55,12 @@ export type CursorRuntimeKind = "local" | "cloud";
 export type CursorAgentModeOption = "agent" | "plan";
 export type LogLevel = "fatal" | "error" | "warn" | "info" | "debug" | "trace" | "silent";
 export type ToolBridgeMode = "hold" | "cancel";
+/**
+ * How GET /v1/models is projected:
+ * - `all`: canonical ids + aliases + single-delta variant slugs (previous default).
+ * - `canonical`: one id per SDK model plus useful variants (including `-fast`); aliases still *resolve* on request. `deduplicated` is accepted as an alias of this value (issue #2's suggested name).
+ */
+export type ModelListMode = "all" | "canonical";
 
 export interface AppConfig {
   cursorApiKey: string | undefined;
@@ -106,6 +112,18 @@ export interface AppConfig {
    * let a single request OOM a LAN-exposed gateway.
    */
   jsonBodyLimitMb: number;
+  /**
+   * Projection for GET /v1/models. Default `canonical` so OpenAI-compatible
+   * clients (Cherry Studio, etc.) are not flooded with alias duplicates.
+   * Request resolution still accepts aliases and variant slugs.
+   */
+  modelListMode: ModelListMode;
+  /**
+   * Optional comma-separated allowlist of model ids to expose on GET
+   * /v1/models (and GET /v1/models/:id). Empty means no list filter.
+   * Chat/responses resolution is not restricted by this list.
+   */
+  allowedModels: string;
 }
 
 function resolveDefaultWorkdirRoot(): string {
@@ -130,6 +148,22 @@ export function validateAgentMode(raw: string): CursorAgentModeOption {
 export function validateToolBridgeMode(raw: string): ToolBridgeMode {
   if (raw === "hold" || raw === "cancel") return raw;
   throw new ConfigError(`TOOL_BRIDGE_MODE must be "hold" or "cancel", got "${raw}"`);
+}
+
+export function validateModelListMode(raw: string): ModelListMode {
+  const normalized = raw.trim().toLowerCase();
+  if (normalized === "all") return "all";
+  if (normalized === "canonical" || normalized === "deduplicated") return "canonical";
+  throw new ConfigError(`MODEL_LIST_MODE must be "all" or "canonical" (alias: "deduplicated"), got "${raw}"`);
+}
+
+/** Splits ALLOWED_MODELS into trimmed ids; empty / whitespace-only means no filter. */
+export function parseAllowedModels(raw: string): string[] {
+  if (!raw.trim()) return [];
+  return raw
+    .split(",")
+    .map((id) => id.trim())
+    .filter((id) => id.length > 0);
 }
 
 export const LOG_LEVELS: LogLevel[] = ["fatal", "error", "warn", "info", "debug", "trace", "silent"];
@@ -194,6 +228,8 @@ export function loadConfig(): AppConfig {
     autoOpenBrowser: optionalBool("AUTO_OPEN_BROWSER", true),
     adminAllowRemote: optionalBool("ADMIN_ALLOW_REMOTE", false),
     jsonBodyLimitMb: optionalInt("JSON_BODY_LIMIT_MB", 25),
+    modelListMode: validateModelListMode(optionalString("MODEL_LIST_MODE", "canonical")),
+    allowedModels: optionalString("ALLOWED_MODELS", ""),
   };
 
   if (config.maxCachedAgents < 1) {

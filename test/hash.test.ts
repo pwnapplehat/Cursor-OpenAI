@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { hashMessages } from "../src/utils/hash";
+import { hashMessages, modelSelectionKey } from "../src/utils/hash";
 import type { ChatCompletionMessage } from "../src/types/openai";
 
 const base: ChatCompletionMessage[] = [
@@ -39,4 +39,32 @@ test("hashMessages is order-sensitive", () => {
   const a = hashMessages("composer-2.5", base);
   const b = hashMessages("composer-2.5", reversed);
   assert.notEqual(a, b);
+});
+
+test("modelSelectionKey is stable regardless of param order and distinguishes Fast vs non-Fast", () => {
+  assert.equal(modelSelectionKey({ id: "composer-2.5" }), "composer-2.5");
+  assert.equal(
+    modelSelectionKey({ id: "composer-2.5", params: [{ id: "fast", value: "false" }] }),
+    "composer-2.5|fast=false",
+  );
+  assert.notEqual(
+    modelSelectionKey({ id: "composer-2.5", params: [{ id: "fast", value: "false" }] }),
+    modelSelectionKey({ id: "composer-2.5", params: [{ id: "fast", value: "true" }] }),
+  );
+  assert.equal(
+    modelSelectionKey({
+      id: "claude-sonnet-5",
+      params: [
+        { id: "context", value: "1m" },
+        { id: "thinking", value: "true" },
+      ],
+    }),
+    modelSelectionKey({
+      id: "claude-sonnet-5",
+      params: [
+        { id: "thinking", value: "true" },
+        { id: "context", value: "1m" },
+      ],
+    }),
+  );
 });

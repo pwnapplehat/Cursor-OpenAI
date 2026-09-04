@@ -1,6 +1,7 @@
 import { Cursor } from "@cursor/sdk";
 import type { SDKModel, ModelSelection, ModelParameterValue, ModelVariant } from "@cursor/sdk";
-import type { OpenAIModelList } from "../types/openai";
+import type { ModelListMode } from "../config";
+import type { OpenAIModel, OpenAIModelList } from "../types/openai";
 import type { Logger } from "../logger";
 
 interface CacheEntry {
@@ -10,12 +11,27 @@ interface CacheEntry {
 
 const CACHE_TTL_MS = 5 * 60 * 1000;
 
+export interface ModelListOptions {
+  /** `all` includes aliases; `canonical` lists one id per SDK model plus useful variants (including `-fast`). */
+  mode?: ModelListMode;
+  /** When non-empty, only these listed ids (case-insensitive exact match) appear in GET /v1/models. Resolution of chat/responses requests is not filtered. */
+  allowedModels?: string[];
+}
+
 /**
  * Caches `Cursor.models.list()` per API key (each key may see a different
  * catalog depending on plan/team) and resolves OpenAI-style requested model
- * strings against it - by exact id, by alias, by variant-suffixed id
- * (`gpt-5.4-mini-xhigh` -> `gpt-5.4-mini` + `reasoning=xhigh`), or
+ * strings against it - by exact id, by variant-suffixed id
+ * (`gpt-5.4-mini-xhigh` -> `gpt-5.4-mini` + `reasoning=xhigh`,
+ * `composer-2.5-fast` -> `composer-2.5` + `fast=true`), by alias, or
  * case-insensitively - before falling back to the configured default model.
+ *
+ * Product contract for the `fast` parameter (when the catalog declares one):
+ * the bare model id is **non-Fast** (`fast=false`); the `-fast` suffix is
+ * Fast (`fast=true`). Cursor's own default variant for several models
+ * (notably Composer) is Fast, so sending only `{ id }` would bill as
+ * `composer-2.5-fast`. This resolver always passes an explicit `fast` param
+ * when the catalog exposes one.
  */
 export class ModelCatalog {
   private readonly cache = new Map<string, CacheEntry>();
@@ -52,54 +68,81 @@ export class ModelCatalog {
 
   async resolveModelSelection(apiKey: string, requestedId: string, defaultModelId: string): Promise<ModelSelection> {
     const models = await this.safeList(apiKey);
-    const match = findModel(models, requestedId) ?? (requestedId === "auto" ? { id: "auto" } : undefined);
-    if (match) return { id: match.id };
+    const requested = requestedId.trim();
 
-    // Variant-suffixed id (the naming convention Cursor's own model slugs
-    // use): "<base-id-or-alias>-<value-or-flag>[-...]", e.g. gpt-5.4-mini-xhigh
-    // or claude-sonnet-5-thinking-1m. Resolves to a real ModelSelection with
-    // params so the SDK serves that exact variant.
-    const variantSelection = parseVariantSelection(models, requestedId);
+    // 1. Exact canonical id (NOT aliases). Apply explicit non-Fast when a
+    // `fast` param exists so Cursor cannot silently serve its Fast default.
+    const exact = findModelById(models, requested);
+    if (exact) return selectionForModel(exact, { fast: false });
+
+    if (requested.toLowerCase() === "auto") return { id: "auto" };
+
+    // 2. Variant-suffixed id, matched against id AND alias bases *before*
+    // alias collapse. `composer-2.5-fast` must become `fast=true` rather than
+    // resolving as an alias of `composer-2.5` with no params (which would
+    // then inherit Cursor's Fast default).
+    const variantSelection = parseVariantSelection(models, requested);
     if (variantSelection) {
-      this.log.info({ requestedId, resolved: variantSelection }, "resolved variant-suffixed model id to a parameterized selection");
+      this.log.info({ requestedId: requested, resolved: variantSelection }, "resolved variant-suffixed model id to a parameterized selection");
       return variantSelection;
     }
 
-    if (defaultModelId !== requestedId) {
-      const defaultMatch = findModel(models, defaultModelId);
+    // 3. Remaining alias match. An alias literally named `<id>-fast` still
+    // forces Fast when the catalog has that parameter; every other alias
+    // is the non-Fast selection of its canonical model.
+    const aliasMatch = findModelByAlias(models, requested);
+    if (aliasMatch) {
+      const matchedAlias = (aliasMatch.aliases ?? []).find((alias) => alias.toLowerCase() === requested.toLowerCase());
+      const wantFast = Boolean(matchedAlias && aliasImpliesFast(matchedAlias, aliasMatch.id) && hasFastParam(aliasMatch));
+      return selectionForModel(aliasMatch, { fast: wantFast });
+    }
+
+    if (defaultModelId !== requested) {
+      const defaultMatch = findModelById(models, defaultModelId) ?? findModelByAlias(models, defaultModelId);
       if (defaultMatch) {
         this.log.info(
-          { requestedId, resolvedTo: defaultMatch.id },
+          { requestedId: requested, resolvedTo: defaultMatch.id },
           "requested model not found in Cursor catalog, falling back to configured default",
         );
-        return { id: defaultMatch.id };
+        return selectionForModel(defaultMatch, { fast: false });
       }
     }
 
     // Let the SDK itself reject unknown ids with an authoritative error rather
     // than us silently guessing - this keeps failures honest and debuggable.
-    this.log.warn({ requestedId }, "requested model not found in Cursor catalog; passing through as-is");
-    return { id: requestedId };
+    this.log.warn({ requestedId: requested }, "requested model not found in Cursor catalog; passing through as-is");
+    return { id: requested };
   }
 
-  async toOpenAIModelList(apiKey: string): Promise<OpenAIModelList> {
+  async toOpenAIModelList(apiKey: string, options: ModelListOptions = {}): Promise<OpenAIModelList> {
     const models = await this.safeList(apiKey);
     const created = Math.floor(Date.now() / 1000);
+    const mode: ModelListMode = options.mode ?? "canonical";
     const seen = new Set<string>();
-    const data = [];
+    const data: OpenAIModel[] = [];
+
+    const push = (id: string, contextLength: number | undefined): void => {
+      if (seen.has(id)) return;
+      seen.add(id);
+      data.push({
+        id,
+        object: "model",
+        created,
+        owned_by: "cursor",
+        ...(contextLength !== undefined ? { context_length: contextLength } : {}),
+      });
+    };
+
     for (const model of models) {
       const contextLength = resolveContextLength(model);
-      const base = { object: "model" as const, created, owned_by: "cursor" };
-      if (!seen.has(model.id)) {
-        seen.add(model.id);
-        data.push({ id: model.id, ...base, ...(contextLength !== undefined ? { context_length: contextLength } : {}) });
-      }
-      for (const alias of model.aliases ?? []) {
-        if (!seen.has(alias)) {
-          seen.add(alias);
-          data.push({ id: alias, ...base, ...(contextLength !== undefined ? { context_length: contextLength } : {}) });
+      push(model.id, contextLength);
+
+      if (mode === "all") {
+        for (const alias of model.aliases ?? []) {
+          push(alias, contextLength);
         }
       }
+
       // Variant-suffixed ids (Cursor's own slug convention, e.g.
       // gpt-5.4-mini-xhigh, claude-sonnet-5-thinking). Listed for variants
       // that differ from the default in exactly ONE parameter - the useful,
@@ -108,14 +151,62 @@ export class ModelCatalog {
       for (const variant of model.variants ?? []) {
         const suffix = singleDeltaVariantSuffix(model, variant);
         if (!suffix) continue;
-        const variantId = `${model.id}-${suffix}`;
-        if (seen.has(variantId)) continue;
-        seen.add(variantId);
         const variantContext = resolveVariantContextLength(variant) ?? contextLength;
-        data.push({ id: variantId, ...base, ...(variantContext !== undefined ? { context_length: variantContext } : {}) });
+        push(`${model.id}-${suffix}`, variantContext);
+      }
+
+      // Always list `<id>-fast` when the catalog has a `fast` parameter, even
+      // when Fast is Cursor's default variant (singleDeltaVariantSuffix would
+      // skip it as "the default", and skip non-Fast because `false` has no
+      // slug). The bare id is the non-Fast selection; this entry is Fast.
+      if (hasFastParam(model)) {
+        push(`${model.id}-fast`, contextLength);
       }
     }
-    return { object: "list", data };
+
+    const allowed = normalizeAllowed(options.allowedModels);
+    const filtered = allowed ? data.filter((entry) => allowed.has(entry.id.toLowerCase())) : data;
+    return { object: "list", data: filtered };
+  }
+
+  /**
+   * GET /v1/models/:id lookup. Prefers the filtered list; when no allowlist
+   * is set, also resolves aliases and hand-typed variant slugs that canonical
+   * listing omits, so a client that already knows `claude-sonnet` still gets
+   * a 200 rather than a 404.
+   */
+  async lookupOpenAIModel(apiKey: string, id: string, options: ModelListOptions = {}): Promise<OpenAIModel | undefined> {
+    const list = await this.toOpenAIModelList(apiKey, options);
+    const listed = list.data.find((model) => model.id === id);
+    if (listed) return listed;
+
+    const allowed = normalizeAllowed(options.allowedModels);
+    if (allowed) return undefined;
+
+    const models = await this.safeList(apiKey);
+    const created = Math.floor(Date.now() / 1000);
+    const found = findModel(models, id);
+    if (found) {
+      const contextLength = resolveContextLength(found);
+      return {
+        id,
+        object: "model",
+        created,
+        owned_by: "cursor",
+        ...(contextLength !== undefined ? { context_length: contextLength } : {}),
+      };
+    }
+    const variant = parseVariantSelection(models, id);
+    if (!variant) return undefined;
+    const variantModel = findModelById(models, variant.id);
+    const contextLength = variantModel ? resolveContextLength(variantModel) : undefined;
+    return {
+      id,
+      object: "model",
+      created,
+      owned_by: "cursor",
+      ...(contextLength !== undefined ? { context_length: contextLength } : {}),
+    };
   }
 
   private async safeList(apiKey: string): Promise<SDKModel[]> {
@@ -127,13 +218,48 @@ export class ModelCatalog {
   }
 }
 
-function findModel(models: SDKModel[], requestedId: string): SDKModel | undefined {
+/** Human-readable `id (param=value, ...)` for logs - never a substitute for passing the real ModelSelection through to the SDK. */
+export function formatModelSelection(selection: ModelSelection): string {
+  if (!selection.params?.length) return selection.id;
+  return `${selection.id} (${selection.params.map((p) => `${p.id}=${p.value}`).join(", ")})`;
+}
+
+function normalizeAllowed(allowed: string[] | undefined): Set<string> | undefined {
+  if (!allowed || allowed.length === 0) return undefined;
+  const set = new Set(allowed.map((id) => id.trim().toLowerCase()).filter(Boolean));
+  return set.size > 0 ? set : undefined;
+}
+
+function findModelById(models: SDKModel[], requestedId: string): SDKModel | undefined {
   const normalized = requestedId.trim().toLowerCase();
-  return models.find(
-    (model) =>
-      model.id.toLowerCase() === normalized ||
-      (model.aliases ?? []).some((alias) => alias.toLowerCase() === normalized),
-  );
+  return models.find((model) => model.id.toLowerCase() === normalized);
+}
+
+function findModelByAlias(models: SDKModel[], requestedId: string): SDKModel | undefined {
+  const normalized = requestedId.trim().toLowerCase();
+  return models.find((model) => (model.aliases ?? []).some((alias) => alias.toLowerCase() === normalized));
+}
+
+function findModel(models: SDKModel[], requestedId: string): SDKModel | undefined {
+  return findModelById(models, requestedId) ?? findModelByAlias(models, requestedId);
+}
+
+function hasFastParam(model: SDKModel): boolean {
+  return (model.parameters ?? []).some((p) => p.id === "fast");
+}
+
+function aliasImpliesFast(alias: string, modelId: string): boolean {
+  return alias.trim().toLowerCase() === `${modelId.trim().toLowerCase()}-fast`;
+}
+
+/**
+ * Builds the ModelSelection the SDK must receive. When the catalog declares a
+ * `fast` parameter, `fast` is always set explicitly - omitting it lets Cursor
+ * apply its own default, which for Composer is Fast.
+ */
+function selectionForModel(model: SDKModel, opts: { fast: boolean }): ModelSelection {
+  if (!hasFastParam(model)) return { id: model.id };
+  return { id: model.id, params: [{ id: "fast", value: opts.fast ? "true" : "false" }] };
 }
 
 /**
@@ -142,9 +268,9 @@ function findModel(models: SDKModel[], requestedId: string): SDKModel | undefine
  * Cursor's own slug convention for variants: `<base>-<token>[-<token>...]`,
  * where a token is either a parameter *value* (`xhigh` -> `reasoning=xhigh`,
  * `1m` -> `context=1m`) or, for boolean parameters, the parameter *id*
- * (`thinking` -> `thinking=true`). Matching is case-insensitive and prefers
- * the longest base id/alias so `gpt-5.4-mini-xhigh` binds to `gpt-5.4-mini`,
- * not to a shorter accidental prefix.
+ * (`thinking` -> `thinking=true`, `fast` -> `fast=true`). Matching is
+ * case-insensitive and prefers the longest base id/alias so `gpt-5.4-mini-xhigh`
+ * binds to `gpt-5.4-mini`, not to a shorter accidental prefix.
  *
  * When the parsed tokens correspond to a declared catalog variant (all parsed
  * params match, all other params at their default-variant values), that
@@ -182,7 +308,7 @@ function parseVariantTokens(model: SDKModel, tokens: string[]): ModelParameterVa
   const assigned = new Set<string>();
   for (const token of tokens) {
     if (!token) return undefined;
-    // Boolean-style parameter referenced by id: "...-thinking" -> thinking=true.
+    // Boolean-style parameter referenced by id: "...-thinking" -> thinking=true, "...-fast" -> fast=true.
     const byId = parameters.find(
       (p) => p.id.toLowerCase() === token && p.values.some((v) => v.value === "true"),
     );
@@ -220,7 +346,8 @@ function findDeclaredVariant(model: SDKModel, parsed: ModelParameterValue[]): Mo
  * the default in exactly one parameter get a listed slug (`-xhigh`,
  * `-thinking`, `-1m`); the resolver still accepts hand-typed multi-parameter
  * combos. Returns undefined for the default variant, multi-parameter deltas,
- * and boolean-off deltas (no natural slug token).
+ * and boolean-off deltas (no natural slug token). Fast is listed separately
+ * so it appears even when it *is* the catalog default.
  */
 function singleDeltaVariantSuffix(model: SDKModel, variant: ModelVariant): string | undefined {
   const variants = model.variants ?? [];
@@ -232,6 +359,7 @@ function singleDeltaVariantSuffix(model: SDKModel, variant: ModelVariant): strin
   if (deltas.length !== 1) return undefined;
 
   const delta = deltas[0]!;
+  if (delta.id === "fast") return undefined;
   if (delta.value === "true") return delta.id;
   if (delta.value === "false") return undefined;
   return delta.value;
@@ -258,13 +386,14 @@ function parseContextValue(raw: string): number | undefined {
  * Derives the effective context window (tokens) for a catalog model.
  *
  * Cursor exposes context as a model *parameter* (id `"context"`, values like
- * `"300k"` / `"1m"`) with per-variant assignments. Requests through this
- * gateway send only a model id - no params - so Cursor serves the variant
- * marked `isDefault`; that variant's context value is the number that's
- * actually true for gateway traffic. Falls back to the largest declared
- * context value when no default variant pins one, and to `undefined` (field
- * omitted) for models with no context parameter at all - honest omission
- * beats a made-up number.
+ * `"300k"` / `"1m"`) with per-variant assignments. The gateway's bare model
+ * id is the non-Fast selection when a `fast` param exists; other parameters
+ * (including context) stay at the catalog default variant unless the client
+ * requested a variant slug. That variant's context value is the number that's
+ * actually true for gateway traffic on the bare id. Falls back to the largest
+ * declared context value when no default variant pins one, and to `undefined`
+ * (field omitted) for models with no context parameter at all - honest
+ * omission beats a made-up number.
  */
 function resolveContextLength(model: SDKModel): number | undefined {
   const contextParam = (model.parameters ?? []).find((p) => p.id === "context");

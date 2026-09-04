@@ -58,13 +58,13 @@ async function handleCompletion(deps: GatewayDeps, req: Request, res: Response):
         streaming: true,
         sink: {
           onTextDelta: (delta) => {
-            sse.send(buildLegacyChunk(id, created, prepared.resolvedModelId, delta, null));
+            sse.send(buildLegacyChunk(id, created, prepared.requestedModelId, delta, null));
           },
         },
       });
 
       if (!sse.isClosed) {
-        sse.send(buildLegacyChunk(id, created, prepared.resolvedModelId, "", "stop"));
+        sse.send(buildLegacyChunk(id, created, prepared.requestedModelId, "", "stop"));
         sse.done();
       }
       if (outcome.finishReason !== "cancelled") rememberGatewayTurn(deps, prepared, outcome);
@@ -94,7 +94,7 @@ async function handleCompletion(deps: GatewayDeps, req: Request, res: Response):
     id: newCompletionId(),
     object: "text_completion",
     created: Math.floor(Date.now() / 1000),
-    model: outcome.model?.id ?? prepared.requestedModelId,
+    model: prepared.requestedModelId,
     choices: [{ index: 0, text: outcome.content, finish_reason: "stop", logprobs: null }],
     usage: toOpenAIUsage(outcome.usage, promptText, outcome.content),
   };

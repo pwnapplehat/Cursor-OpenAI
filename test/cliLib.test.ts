@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { coerceConfigValue, parseKeyValuePairs, parseArgv, resolveBaseUrl, resolveAdminKey, parseSseChunk, stripBom } from "../bin/cli-lib.mjs";
+import { coerceConfigValue, parseKeyValuePairs, parseArgv, resolveBaseUrl, resolveAdminKey, parseSseChunk, stripBom, CONFIG_FIELD_TYPES } from "../bin/cli-lib.mjs";
+import { ALL_EDITABLE_CONFIG_FIELDS } from "../src/configStore";
 
 test("coerceConfigValue converts boolean fields from common truthy/falsy strings", () => {
   assert.equal(coerceConfigValue("sessionsEnabled", "true"), true);
@@ -18,6 +19,8 @@ test("coerceConfigValue throws a clear error for an unrecognized boolean value",
 test("coerceConfigValue converts number fields", () => {
   assert.equal(coerceConfigValue("maxConcurrentRuns", "16"), 16);
   assert.equal(coerceConfigValue("port", "8080"), 8080);
+  assert.equal(coerceConfigValue("jsonBodyLimitMb", "25"), 25);
+  assert.equal(coerceConfigValue("toolResultTimeoutMs", "900000"), 900000);
 });
 
 test("coerceConfigValue throws a clear error for a non-numeric number field", () => {
@@ -27,6 +30,9 @@ test("coerceConfigValue throws a clear error for a non-numeric number field", ()
 test("coerceConfigValue passes string fields through unchanged", () => {
   assert.equal(coerceConfigValue("defaultModel", "composer-2.5"), "composer-2.5");
   assert.equal(coerceConfigValue("host", "0.0.0.0"), "0.0.0.0");
+  assert.equal(coerceConfigValue("modelListMode", "canonical"), "canonical");
+  assert.equal(coerceConfigValue("allowedModels", "composer-2.5,gpt-5.4-mini"), "composer-2.5,gpt-5.4-mini");
+  assert.equal(coerceConfigValue("toolBridgeMode", "hold"), "hold");
 });
 
 test("coerceConfigValue passes unknown keys through as strings (lets the server reject them)", () => {
@@ -116,4 +122,8 @@ test("stripBom leaves text without a BOM unchanged", () => {
 test("parseSseChunk skips malformed JSON frames without throwing", () => {
   const { frames } = parseSseChunk("data: {not json}\n\ndata: {\"type\":\"done\"}\n\n");
   assert.deepEqual(frames, [{ done: false, data: { type: "done" } }]);
+});
+
+test("CLI CONFIG_FIELD_TYPES keys match every editable AppConfig field", () => {
+  assert.deepEqual(Object.keys(CONFIG_FIELD_TYPES).sort(), [...ALL_EDITABLE_CONFIG_FIELDS].sort());
 });

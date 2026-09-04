@@ -6,7 +6,7 @@ import type { SDKAgent, ModelSelection } from "@cursor/sdk";
 import type { AppConfig } from "../config";
 import type { Logger } from "../logger";
 import type { ChatCompletionMessage, ChatCompletionRequestMetadata } from "../types/openai";
-import { computeNewSuffix, hashMessages } from "../utils/hash";
+import { computeNewSuffix, hashMessages, modelSelectionKey } from "../utils/hash";
 import { Mutex } from "../utils/concurrency";
 
 export interface SessionHandle {
@@ -120,7 +120,8 @@ export class SessionManager {
 
     if (this.config.sessionsEnabled && this.config.autoSessionEnabled && messages.length > 1) {
       const prefix = messages.slice(0, -1);
-      const autoKey = `auto:${apiKeyPart}:${model.id}:${hashMessages(model.id, prefix)}`;
+      const modelKey = modelSelectionKey(model);
+      const autoKey = `auto:${apiKeyPart}:${modelKey}:${hashMessages(modelKey, prefix)}`;
       const cached = this.entries.get(autoKey);
       if (cached) return this.toHandle(autoKey, cached, messages);
     }
@@ -147,7 +148,8 @@ export class SessionManager {
     if (!this.config.autoSessionEnabled) return;
 
     const apiKeyPart = shortHash(apiKey);
-    const autoKey = `auto:${apiKeyPart}:${model.id}:${hashMessages(model.id, messages)}`;
+    const modelKey = modelSelectionKey(model);
+    const autoKey = `auto:${apiKeyPart}:${modelKey}:${hashMessages(modelKey, messages)}`;
     const entry = this.entries.get(handle.key) ?? this.entryFromHandle(handle);
     entry.lastMessages = messages;
     entry.lastUsedAt = Date.now();

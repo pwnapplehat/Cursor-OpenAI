@@ -17,3 +17,6 @@ coverage/
 sessions.json
 *.pid
 .cursor-gateway/
+.gateway-auth-key
+package.json.pre-*
+package-lock.json.pre-*

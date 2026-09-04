@@ -24,6 +24,16 @@ export class SseWriter {
     this.res.write(`data: ${JSON.stringify(payload)}\n\n`);
   }
 
+  /**
+   * Named SSE event used by the OpenAI Responses API (`event: <type>` plus a
+   * `data:` JSON line whose `type` field matches). Chat Completions keep
+   * using {@link send}, which is data-only.
+   */
+  sendEvent(event: string, payload: unknown): void {
+    if (this.closed) return;
+    this.res.write(`event: ${event}\ndata: ${JSON.stringify(payload)}\n\n`);
+  }
+
   sendComment(comment: string): void {
     if (this.closed) return;
     this.res.write(`: ${comment}\n\n`);

@@ -395,6 +395,27 @@
                 <input type="hidden" data-field="defaultModel" />
               </div>
             </div>
+            <div class="settings-row">
+              <div class="settings-row-info">
+                <div class="settings-row-title">Model list</div>
+                <div class="settings-row-desc">What GET /v1/models returns. Canonical is one id per Cursor model plus useful variants (including Fast). All also lists aliases. Requests still accept aliases either way.</div>
+              </div>
+              <div class="settings-row-control">
+                <select data-field="modelListMode" class="input-field">
+                  <option value="canonical">Canonical (recommended &mdash; no alias duplicates)</option>
+                  <option value="all">All (canonical ids + aliases + variants)</option>
+                </select>
+              </div>
+            </div>
+            <div class="settings-row">
+              <div class="settings-row-info">
+                <div class="settings-row-title">Allowed models</div>
+                <div class="settings-row-desc">Optional comma-separated allowlist for GET /v1/models. Leave blank to list everything the mode above would. Does not block chat/responses from resolving other catalog ids.</div>
+              </div>
+              <div class="settings-row-control">
+                <input type="text" data-field="allowedModels" class="input-field font-mono" placeholder="composer-2.5, gpt-5.4-mini, claude-sonnet-5" />
+              </div>
+            </div>
             <div class="form-actions"><button type="submit" class="btn-primary">Save</button><span class="save-status"></span></div>
           </form>
 

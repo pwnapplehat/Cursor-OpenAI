@@ -136,8 +136,9 @@ Every command also accepts `--json` for machine-readable output instead of a for
 
 - **A built-in setup wizard and admin dashboard** - see [Admin dashboard](#admin-dashboard) above. Nothing below requires it, but it's there so non-technical users never have to touch a terminal.
 - **`/v1/chat/completions`** - streaming (SSE) and non-streaming, system/user/assistant/tool messages, images (`image_url`, including base64 data URLs), usage accounting.
+- **`/v1/responses`** - OpenAI Responses API adapter (`input`, `instructions`, streaming events, `previous_response_id` multi-turn, function tools) translated onto the same Cursor agent pipeline. See [Endpoints](#endpoints).
 - **`/v1/completions`** - legacy text-completion endpoint, implemented as a thin adapter over the chat pipeline.
-- **`/v1/models`** / **`/v1/models/:id`** - live catalog pulled from `Cursor.models.list()` for the authenticated key, including aliases **and model variants**. Cursor models expose parameters (reasoning effort, thinking, context size, fast mode); every variant that differs from the default in one parameter is listed as its own id using Cursor's slug convention - `gpt-5.4-mini-xhigh`, `claude-sonnet-5-max`, `claude-opus-4-8-fast`, `grok-4.3-200k` - and requesting one runs that exact parameterized variant (hand-typed multi-parameter combos like `claude-sonnet-5-thinking-1m` resolve too, including on aliases). Each entry also carries a non-standard `context_length` field (tokens) derived from the variant it denotes (default variant for base ids) - e.g. `claude-sonnet-5` reports `1000000` while `claude-sonnet-5-300k` reports `300000`. Agent frameworks (Hermes, LiteLLM-style routers, etc.) that probe `/models` for context metadata pick this up automatically to size their context-compression thresholds; strict OpenAI clients ignore the extra field. Models whose catalog entry declares no context parameter (e.g. `composer-2.5`) omit the field rather than inventing a number.
+- **`/v1/models`** / **`/v1/models/:id`** - live catalog pulled from `Cursor.models.list()` for the authenticated key, including model variants. Cursor models expose parameters (reasoning effort, thinking, context size, fast mode); every variant that differs from the default in one parameter is listed as its own id using Cursor's slug convention - `gpt-5.4-mini-xhigh`, `claude-sonnet-5-max`, `claude-opus-4-8-fast`, `grok-4.3-200k` - and requesting one runs that exact parameterized variant (hand-typed multi-parameter combos like `claude-sonnet-5-thinking-1m` resolve too, including on aliases). **Fast mode is explicit:** when a model declares a `fast` parameter (Composer does), the bare id (`composer-2.5`) is always sent as `fast=false` (non-Fast). `composer-2.5-fast` is Fast. Sending only `{ id }` would inherit Cursor's catalog default, which for Composer is Fast and showed up as `composer-2.5-fast` in Cursor usage. Default listing is `MODEL_LIST_MODE=canonical` (one id per SDK model plus useful variants, including `-fast`, without alias duplicates). `MODEL_LIST_MODE=all` restores aliases on the list; aliases still *resolve* on request in either mode. `ALLOWED_MODELS` optionally filters the listed ids. Each entry also carries a non-standard `context_length` field (tokens) derived from the variant it denotes (default variant for base ids) - e.g. `claude-sonnet-5` reports `1000000` while `claude-sonnet-5-300k` reports `300000`. Agent frameworks (Hermes, LiteLLM-style routers, etc.) that probe `/models` for context metadata pick this up automatically to size their context-compression thresholds; strict OpenAI clients ignore the extra field. Models whose catalog entry declares no context parameter (e.g. `composer-2.5`) omit the field rather than inventing a number.
 - **`/v1/embeddings`** - returns a clear, correctly-shaped `501` error rather than a fabricated vector (Cursor's Agent SDK has no embeddings API - see [Known limitations](#known-limitations)).
 - **Streaming with real deltas** - chain-of-thought/"thinking" text can be streamed as `reasoning_content`, matching the convention used by DeepSeek/o1-style OpenAI-compatible clients.
 - **Multi-turn sessions** with three ways to keep context across requests: automatic conversation-hash detection, an explicit `session_id`, or resuming a real Cursor agent by id. See [Sessions](#sessions-and-multi-turn-conversations).
@@ -189,6 +190,8 @@ See [`.env.example`](./.env.example) for the full, documented list of every vari
 | `TOOL_BRIDGE_MODE` | `hold` | `hold` keeps one Cursor run alive across a whole tool loop (one metered request, native-app-like); `cancel` is the legacy one-run-per-step behavior. See [Tool calling](#tool--function-calling). |
 | `TOOL_RESULT_TIMEOUT_MS` | `900000` | Hold mode only: how long a run waits for the client's tool result before it's torn down (frees the agent + concurrency slot). |
 | `JSON_BODY_LIMIT_MB` | `25` | Max JSON request body size in MB (1-1024; 25 is in line with major provider APIs - Anthropic caps requests at 32 MB). Oversized bodies get a proper HTTP 413, which vision-heavy clients like Hermes treat as the signal to compress history and continue. Bounded on purpose: bodies are buffered/parsed in RAM, so "unlimited" would let one request OOM the process. |
+| `MODEL_LIST_MODE` | `canonical` | How GET `/v1/models` is projected. `canonical` (also accepts `deduplicated`) lists one id per Cursor model plus useful variants including `-fast`. `all` also lists aliases. Requests still resolve aliases either way. Bare `composer-2.5` is always the non-Fast selection. |
+| `ALLOWED_MODELS` | *(empty)* | Optional comma-separated allowlist of model ids for GET `/v1/models`. Empty means no list filter. Does not block chat/responses from resolving other catalog ids. |
 | `AUTO_OPEN_BROWSER` | `true` | Opens the dashboard automatically on startup - interactive (TTY) starts only; unattended launches (the [`autostart/`](autostart/README.md) toolkit, systemd, launchd, Docker, CI) never spawn a browser regardless of this setting. Set `false` to disable it even for interactive starts (the provided Dockerfile already does, belt-and-suspenders). |
 | `ADMIN_ALLOW_REMOTE` | `false` | Allows the admin dashboard/API from non-localhost addresses. See [Dashboard security](#dashboard-security). |
 
@@ -198,9 +201,11 @@ See [`.env.example`](./.env.example) for the full, documented list of every vari
 | --- | --- |
 | `POST /v1/chat/completions` | Streaming and non-streaming. |
 | `POST /v1/completions` | Legacy text completions. |
-| `GET /v1/models`, `GET /v1/models/:id` | Live catalog for the authenticated key. |
+| `POST /v1/responses` | OpenAI Responses API adapter (`input` / `instructions` / streaming events / `previous_response_id` / function tools). |
+| `GET /v1/responses/:id` | Retrieve a response stored in this process (TTL = `SESSION_TTL_MS` of inactivity). Same Cursor API key as the creating request; unknown/wrong-key ids return 404. |
+| `GET /v1/models`, `GET /v1/models/:id` | Live catalog for the authenticated key (`MODEL_LIST_MODE` / `ALLOWED_MODELS`). |
 | `POST /v1/embeddings` | Always returns `501` - see [Known limitations](#known-limitations). |
-| `GET /health` | Liveness/readiness, no auth required. Reports cached session count and concurrency stats. |
+| `GET /health` | Liveness/readiness, no auth required. Reports cached session count, held runs, stored Responses objects, and concurrency stats. |
 
 ## Client examples
 
@@ -239,6 +244,14 @@ console.log(resp.choices[0].message.content);
 ```
 
 If `AUTH_KEY` is set, pass it as the client's `apiKey` instead of `"unused"`. In `passthrough` mode, pass your real `CURSOR_API_KEY` as the client's `apiKey`.
+
+**Responses API (curl):**
+
+```bash
+curl http://localhost:8787/v1/responses \
+  -H "Content-Type: application/json" \
+  -d '{"model":"composer-2.5","input":"Say hello in one sentence."}'
+```
 
 **LiteLLM / Continue.dev / any "OpenAI-compatible" provider config:** set `base_url` (or `apiBase`) to `http://localhost:8787/v1` and the API key to whatever this gateway expects per the auth mode above.
 
@@ -356,7 +369,7 @@ Telegram / Discord / CLI ──▶ Hermes Agent ──▶ this gateway (localhos
 ```
 
 - **One-command setup** - `setup.ps1` (Windows) / `setup.sh` (Linux/macOS) health-checks the gateway (on Windows it can auto-start it via [`autostart/`](autostart/README.md)), registers the gateway as a *named* Hermes provider, wires up Telegram credentials if you pass them, restarts a running Hermes gateway, and verifies the result end-to-end. Idempotent; re-run any time to repair or update.
-- **Full live model catalog** - the addon deliberately registers a *named* custom provider (`custom:cursor`) rather than Hermes' bare `provider: custom`, because only named providers get live `/v1/models` discovery - so Hermes' `/model` picker shows every model your Cursor account can use (80+ ids including aliases) and you can switch mid-conversation (`/model claude-sonnet-5`). Context windows are detected dynamically too, via the `context_length` field this gateway's [`/v1/models`](#features) exposes.
+- **Full live model catalog** - the addon deliberately registers a *named* custom provider (`custom:cursor`) rather than Hermes' bare `provider: custom`, because only named providers get live `/v1/models` discovery - so Hermes' `/model` picker shows the models your Cursor account can use (canonical ids plus variants; aliases still resolve if you type them) and you can switch mid-conversation (`/model claude-sonnet-5`). Context windows are detected dynamically too, via the `context_length` field this gateway's [`/v1/models`](#features) exposes.
 - **Long-running session profile** (`-LongRunning` / `--long-running`) - opt-in tuning for autonomous tasks that run for hours or days: Hermes sessions never auto-reset (no daily/idle wipes; context is managed by compression), a raised per-turn tool budget, the compression summarizer pinned to this gateway, and matched gateway-side timeouts (30-minute per-call cap aligning with Hermes' own internal API timeout, 24-hour cached-agent TTL). Applied live through the admin API when the gateway is running.
 - **Agent tool use, cron jobs, persistent memory, voice notes** - all of Hermes' own capabilities, powered by your Cursor models. With the gateway's default `hold` tool-bridge mode, an entire Hermes tool loop (including screenshots returned as tool results, which ride the run as real image blocks) runs as **one metered Cursor request** per user turn; auxiliary calls Hermes makes on its own (compression, a separately configured vision model) are metered separately.
 - **Manual path included** - every scripted step is documented as plain `hermes config set` commands plus a reference YAML snippet, for people who don't run scripts they haven't read.
@@ -418,6 +431,7 @@ Each of these is also described in a code comment at the exact call site that ca
 Documented honestly rather than glossed over:
 
 - **No embeddings.** `POST /v1/embeddings` returns a `501` - Cursor's Agent SDK has no embeddings API. Fabricating a fake vector would silently corrupt any real similarity search, so this gateway refuses instead of pretending.
+- **Responses API is an adapter, not a full OpenAI clone.** Supported: `input` (string or message / function_call / function_call_output items), `instructions`, `stream` (named SSE events + `[DONE]`; streamed `item_id`s are reused on `response.completed`), `tools` (function tools only), `previous_response_id` (in-memory, TTL = `SESSION_TTL_MS` of inactivity, scoped to the Cursor API key that created the id). `GET /v1/responses/:id` uses the same store. `store: false` skips persistence (that id cannot be retrieved or continued). Not implemented: background mode, built-in tools (`web_search`, `file_search`, …), `include`, compact/encrypted reasoning items, or durable storage across process restarts. Function-calling still uses this gateway's Cursor tool bridge (`hold` / `cancel`).
 - **`max_tokens`/`max_completion_tokens` are accepted but not enforced.** The Cursor SDK's `AgentOptions`/`SendOptions` expose no per-request output-token cap, so these fields currently have no effect on generation length.
 - **Tool calling:** in the default `hold` mode the whole tool loop is one Cursor run and parallel tool calls are captured; only the legacy `cancel` mode has the "first tool call per turn only" limitation (see [Tool / function calling](#tool--function-calling)).
 - **Sessions are in-memory and per-process.** They don't survive a restart or scale across multiple gateway instances; use `metadata.cursor_agent_id` if you need durability across processes.
@@ -448,19 +462,21 @@ src/
   validation.ts            request body validation
   types/openai.ts          hand-rolled OpenAI wire types (no runtime dependency on the openai package)
   cursor/
-    modelCatalog.ts         Cursor.models.list() caching + OpenAI model-id resolution + per-model context_length derivation
+    modelCatalog.ts         Cursor.models.list() caching + OpenAI model-id resolution (explicit Fast/non-Fast) + listing modes + per-model context_length derivation
     sessionManager.ts       agent cache: resume / explicit session / auto-session / fresh; also lists/evicts sessions for the dashboard
     toolBridge.ts            OpenAI tools[] -> Cursor SDKCustomTool (cancel-mode capture)
     heldToolGate.ts          hold-mode tool bridge: parks tool callbacks, batches parallel calls, resolves them from client results
     heldRunManager.ts        keeps one Cursor run alive across an entire tool loop (one metered run), keyed by tool_call_id, with an inactivity timeout
+    responseStore.ts         in-memory previous_response_id store, keyed by response id and scoped to the creating Cursor API key
     runController.ts         drives agent.send()/Run.stream(), text accumulation, tool-call race, cancellation
   translate/
     requestTranslator.ts     OpenAI messages[] -> the single turn text/images to send
-    responseTranslator.ts    RunOutcome -> OpenAI response / SSE chunks
+    responseTranslator.ts    RunOutcome -> OpenAI chat.completion / SSE chunks
+    responsesTranslator.ts   Responses API input/tools/output mapping onto the chat pipeline
     usage.ts                 Cursor TokenUsage -> OpenAI usage
   observability/activityLog.ts  in-memory ring buffer + aggregate stats (requests, errors, tokens, per-model, hourly) for the dashboard
-  gateway/orchestrator.ts    ties the above together for both chat + legacy completions routes AND the admin test-chat endpoints (streaming + non-streaming); records every outcome to the activity log
-  routes/                   Express route handlers, including admin.ts (setup wizard + full dashboard/CLI API: config get/set/export/import, system info, activity, sessions, streaming + non-streaming chat)
+  gateway/orchestrator.ts    ties the above together for chat, legacy completions, Responses API, AND the admin test-chat endpoints (streaming + non-streaming); records every outcome to the activity log
+  routes/                   Express route handlers, including admin.ts (setup wizard + full dashboard/CLI API: config get/set/export/import, system info, activity, sessions, streaming + non-streaming chat) and responses.ts (OpenAI Responses API adapter)
   middleware/                auth (constant-time compare), admin loopback restriction, rate limiting, request id, error handling
   utils/                     ids, SSE writer, hashing/diffing, concurrency primitives, token estimate, safe compare, browser launcher, port fallback, package version lookup
 public/                     the admin dashboard itself - sidebar-navigated Overview/Activity/Sessions/Models/Chat/Connect/Settings, static HTML/CSS/vanilla JS + Chart.js/marked/DOMPurify (CDN), no build step, no framework

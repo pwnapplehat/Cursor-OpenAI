@@ -1,12 +1,13 @@
-import type { SDKCustomTool, SDKUserMessage } from "@cursor/sdk";
+import type { ModelSelection, SDKCustomTool, SDKUserMessage } from "@cursor/sdk";
 import type { AppConfig } from "../config";
 import type { Logger } from "../logger";
-import type { ModelCatalog } from "../cursor/modelCatalog";
+import { formatModelSelection, type ModelCatalog } from "../cursor/modelCatalog";
 import { SessionManager, type SessionHandle } from "../cursor/sessionManager";
 import type { Semaphore } from "../utils/concurrency";
 import { ToolCallCapture, buildBridgedCustomTools } from "../cursor/toolBridge";
 import { HeldToolGate, type HeldToolResult } from "../cursor/heldToolGate";
 import type { HeldRunManager, HeldRunSegment } from "../cursor/heldRunManager";
+import type { ResponseStore } from "../cursor/responseStore";
 import { extractImages, extractSystemPrompt, prepareTurn } from "../translate/requestTranslator";
 import { runTurn, type RunOutcome, type RunSink } from "../cursor/runController";
 import { buildChatCompletionResponse } from "../translate/responseTranslator";
@@ -22,6 +23,7 @@ export interface GatewayDeps {
   semaphore: Semaphore;
   activityLog: ActivityLog;
   heldRunManager: HeldRunManager;
+  responseStore: ResponseStore;
 }
 
 /** How long to wait for concurrently-dispatched parallel tool calls to all park before answering the batch. Small; the SDK fires them within a few ms of each other. */
@@ -39,6 +41,8 @@ export interface PreparedGatewayTurn {
   endpoint: ActivityEntry["endpoint"];
   requestedModelId: string;
   resolvedModelId: string;
+  /** Full SDK selection (id + params). Must be forwarded unchanged to Agent.create / agent.send - stripping params is what made `composer-2.5` bill as Fast. */
+  modelSelection: ModelSelection;
   messages: ChatCompletionMessage[];
   handle: SessionHandle;
   turnMessage: string | SDKUserMessage;
@@ -137,6 +141,7 @@ export async function prepareGatewayTurn(
   }
 
   const model = await modelCatalog.resolveModelSelection(apiKey, requestedModelId, config.defaultModel);
+  log.info({ requestedModelId, modelSelection: model, formatted: formatModelSelection(model) }, "resolved Cursor model selection");
 
   // Continuation of a held run? Then there's no new agent turn to prepare -
   // we resume the run that's already open. The held run still owns its
@@ -151,6 +156,7 @@ export async function prepareGatewayTurn(
       endpoint,
       requestedModelId,
       resolvedModelId: model.id,
+      modelSelection: model,
       messages: rest,
       handle: undefined as unknown as SessionHandle,
       turnMessage: "",
@@ -214,6 +220,7 @@ export async function prepareGatewayTurn(
     endpoint,
     requestedModelId,
     resolvedModelId: model.id,
+    modelSelection: model,
     messages: rest,
     handle,
     turnMessage,
@@ -258,7 +265,7 @@ export async function executeGatewayTurn(
     activityLog.record({
       requestId: prepared.requestId,
       endpoint: prepared.endpoint,
-      model: prepared.resolvedModelId,
+      model: prepared.requestedModelId,
       streaming: options.streaming,
       status: err
         ? "error"
@@ -314,7 +321,7 @@ export async function executeGatewayTurn(
         agent: prepared.handle.agent,
         apiKey: prepared.apiKey,
         message: prepared.turnMessage,
-        model: { id: prepared.resolvedModelId },
+        model: prepared.modelSelection,
         agentMode: config.cursorAgentMode,
         customTools: prepared.customTools,
         gate: prepared.heldGate,
@@ -343,7 +350,7 @@ export async function executeGatewayTurn(
       runTurn({
         agent: prepared.handle.agent,
         message: prepared.turnMessage,
-        model: { id: prepared.resolvedModelId },
+        model: prepared.modelSelection,
         agentMode: config.cursorAgentMode,
         customTools: prepared.customTools,
         toolCapture: prepared.toolCapture,
@@ -383,7 +390,7 @@ export function rememberGatewayTurn(deps: GatewayDeps, prepared: PreparedGateway
   const assistantMessage = response.choices[0]!.message;
   deps.sessionManager.remember({
     apiKey: prepared.apiKey,
-    model: { id: prepared.resolvedModelId },
+    model: prepared.modelSelection,
     messages: [...prepared.messages, assistantMessage],
     handle: prepared.handle,
   });

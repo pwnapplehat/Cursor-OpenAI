@@ -40,6 +40,11 @@ export const CONFIG_FIELD_TYPES = Object.freeze({
   rateLimitWindowMs: "number",
   rateLimitMax: "number",
   port: "number",
+  jsonBodyLimitMb: "number",
+  toolResultTimeoutMs: "number",
+  toolBridgeMode: "string",
+  modelListMode: "string",
+  allowedModels: "string",
 });
 
 const TRUTHY = new Set(["1", "true", "yes", "on"]);

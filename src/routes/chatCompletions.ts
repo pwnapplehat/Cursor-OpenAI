@@ -52,7 +52,7 @@ async function handleChatCompletion(deps: GatewayDeps, req: Request, res: Respon
     const id = newChatCompletionId();
     const created = Math.floor(Date.now() / 1000);
     const sse = new SseWriter(res);
-    sse.send(buildRoleChunk(id, created, prepared.resolvedModelId));
+    sse.send(buildRoleChunk(id, created, prepared.requestedModelId));
 
     let heldOpen = false;
     let toolCallIndex = 0;
@@ -62,16 +62,16 @@ async function handleChatCompletion(deps: GatewayDeps, req: Request, res: Respon
         streaming: true,
         sink: {
           onTextDelta: (delta) => {
-            sse.send(buildDeltaChunk(id, created, prepared.resolvedModelId, { content: delta }));
+            sse.send(buildDeltaChunk(id, created, prepared.requestedModelId, { content: delta }));
           },
           onReasoningDelta: (delta) => {
-            sse.send(buildDeltaChunk(id, created, prepared.resolvedModelId, { reasoning_content: delta }));
+            sse.send(buildDeltaChunk(id, created, prepared.requestedModelId, { reasoning_content: delta }));
           },
           onToolCallStarted: (call) => {
             const index = toolCallIndex;
             toolCallIndex += 1;
-            sse.send(buildToolCallStartChunk(id, created, prepared.resolvedModelId, call.id, call.name, index));
-            sse.send(buildToolCallArgumentsChunk(id, created, prepared.resolvedModelId, call.argumentsJson, index));
+            sse.send(buildToolCallStartChunk(id, created, prepared.requestedModelId, call.id, call.name, index));
+            sse.send(buildToolCallArgumentsChunk(id, created, prepared.requestedModelId, call.argumentsJson, index));
           },
         },
       });
@@ -79,7 +79,7 @@ async function handleChatCompletion(deps: GatewayDeps, req: Request, res: Respon
       heldOpen = isHeldOpen(prepared, outcome);
 
       if (!sse.isClosed) {
-        sse.send(buildFinalChunk(id, created, prepared.resolvedModelId, outcome, includeUsage, promptEstimateText));
+        sse.send(buildFinalChunk(id, created, prepared.requestedModelId, outcome, includeUsage, promptEstimateText));
         sse.done();
       }
 

@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { randomBytes } from "node:crypto";
-import { isSetupComplete, validateAgentMode, validateKeyMode, validateLogLevel, validateRuntime, validateToolBridgeMode, type AppConfig } from "./config";
+import { isSetupComplete, validateAgentMode, validateKeyMode, validateLogLevel, validateModelListMode, validateRuntime, validateToolBridgeMode, type AppConfig } from "./config";
 import { HttpError } from "./errors";
 import type { Logger } from "./logger";
 
@@ -51,9 +51,9 @@ const EDITABLE_INT_FIELDS = [
   "port",
   "jsonBodyLimitMb",
 ] as const;
-const EDITABLE_ENUM_FIELDS = ["cursorKeyMode", "cursorRuntime", "cursorAgentMode", "logLevel", "toolBridgeMode"] as const;
+const EDITABLE_ENUM_FIELDS = ["cursorKeyMode", "cursorRuntime", "cursorAgentMode", "logLevel", "toolBridgeMode", "modelListMode"] as const;
 /** Handled by their own dedicated validation blocks in `validate()`, not the generic string/bool/int loops - listed here purely so `isEditableField`/config-import treats them as recognized, editable fields. */
-const EDITABLE_SPECIAL_FIELDS = ["authKey"] as const;
+const EDITABLE_SPECIAL_FIELDS = ["authKey", "allowedModels"] as const;
 
 const MIN_AUTH_KEY_LENGTH = 16;
 
@@ -316,6 +316,27 @@ export class ConfigStore {
         patch.toolBridgeMode = validateToolBridgeMode(value);
       } catch {
         throw HttpError.badRequest('"toolBridgeMode" must be "hold" or "cancel"', "toolBridgeMode");
+      }
+    }
+
+    if ("modelListMode" in input) {
+      const value = input["modelListMode"];
+      if (typeof value !== "string") throw HttpError.badRequest('"modelListMode" must be a string', "modelListMode");
+      try {
+        patch.modelListMode = validateModelListMode(value);
+      } catch {
+        throw HttpError.badRequest('"modelListMode" must be "all" or "canonical" (alias: "deduplicated")', "modelListMode");
+      }
+    }
+
+    if ("allowedModels" in input) {
+      const value = input["allowedModels"];
+      if (value === null) {
+        patch.allowedModels = "";
+      } else if (typeof value !== "string") {
+        throw HttpError.badRequest('"allowedModels" must be a string (comma-separated model ids, or empty for no filter)', "allowedModels");
+      } else {
+        patch.allowedModels = value.trim();
       }
     }
 

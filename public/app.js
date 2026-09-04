@@ -769,6 +769,8 @@ function populateSettingsForms() {
   setField("logLevel", c.logLevel);
   setField("logPretty", c.logPretty, true);
   setField("defaultModel", c.defaultModel);
+  setField("modelListMode", c.modelListMode);
+  setField("allowedModels", c.allowedModels || "");
   setField("cursorWorkdirRoot", c.cursorWorkdirRoot);
   setField("nodeEnv", c.nodeEnv);
 
@@ -895,6 +897,8 @@ function initSettingsForms() {
       cursorRuntime: getField(forms.general, "cursorRuntime").value,
       cursorAgentMode: getField(forms.general, "cursorAgentMode").value,
       defaultModel: getField(forms.general, "defaultModel").value,
+      modelListMode: getField(forms.general, "modelListMode").value,
+      allowedModels: getField(forms.general, "allowedModels").value.trim(),
       ...(getField(forms.general, "cursorApiKey").value.trim() ? { cursorApiKey: getField(forms.general, "cursorApiKey").value.trim() } : {}),
     }),
     sessions: () => ({
@@ -1457,6 +1461,13 @@ function renderSnippetBlocks(baseUrl, apiKey, model) {
     snippetBlock(
       "Python (openai SDK)",
       `from openai import OpenAI\n\nclient = OpenAI(base_url="${baseUrl}", api_key="${apiKey}")\nresp = client.chat.completions.create(\n    model="${model}",\n    messages=[{"role": "user", "content": "Say hello."}],\n)\nprint(resp.choices[0].message.content)`,
+    ),
+  );
+
+  container.appendChild(
+    snippetBlock(
+      "Python (openai SDK, Responses API)",
+      `from openai import OpenAI\n\nclient = OpenAI(base_url="${baseUrl}", api_key="${apiKey}")\nresp = client.responses.create(\n    model="${model}",\n    input="Say hello.",\n)\nprint(resp.output_text)`,
     ),
   );
 

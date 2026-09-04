@@ -89,7 +89,7 @@ async function main(): Promise<void> {
     }
   }
 
-  const { app, sessionManager, heldRunManager } = buildApp(configStore, log);
+  const { app, sessionManager, heldRunManager, responseStore } = buildApp(configStore, log);
 
   // Only the initial boot silently tries nearby ports if the configured one
   // is busy - an explicit port change from the admin dashboard (below) is a
@@ -152,6 +152,7 @@ async function main(): Promise<void> {
     shuttingDown = true;
     log.info({ signal }, "shutting down");
     heldRunManager.shutdown();
+    responseStore.shutdown();
     server.close(() => {
       sessionManager.shutdown();
       log.info("shutdown complete");
@@ -160,6 +161,8 @@ async function main(): Promise<void> {
     // Force-exit if graceful shutdown hangs (e.g. a stuck local agent process).
     setTimeout(() => {
       log.warn("graceful shutdown timed out, forcing exit");
+      heldRunManager.shutdown();
+      responseStore.shutdown();
       sessionManager.shutdown();
       process.exit(1);
     }, 10_000).unref();
@@ -189,6 +192,7 @@ async function main(): Promise<void> {
       });
       child.unref();
       heldRunManager.shutdown();
+      responseStore.shutdown();
       // Deliberately not awaiting server.close()'s drain callback (same
       // reasoning as the port/host rebind above): the process is about to
       // exit outright, which releases the listening socket immediately at

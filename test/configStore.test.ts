@@ -232,6 +232,27 @@ test("ConfigStore.requestRestart does not throw when no restart handler is regis
   assert.doesNotThrow(() => store.requestRestart());
 });
 
+test("ConfigStore.update accepts modelListMode (including the issue #2 alias 'deduplicated') and allowedModels (including empty)", async () => {
+  const store = new ConfigStore(makeTestConfig(), silentLog);
+  await assert.rejects(() => store.update({ modelListMode: "pretty" }), HttpError);
+  await store.update({ modelListMode: "all" });
+  assert.equal(store.config.modelListMode, "all");
+  await store.update({ modelListMode: "deduplicated" });
+  assert.equal(store.config.modelListMode, "canonical");
+  await store.update({ allowedModels: "composer-2.5, gpt-5.4-mini" });
+  assert.equal(store.config.allowedModels, "composer-2.5, gpt-5.4-mini");
+  await store.update({ allowedModels: "" });
+  assert.equal(store.config.allowedModels, "");
+});
+
+test("every AppConfig field is editable (regression: new fields must be wired into ConfigStore)", () => {
+  const snapshot = makeTestConfig();
+  for (const field of Object.keys(snapshot)) {
+    assert.equal(ConfigStore.isEditableField(field), true, `${field} must be in ALL_EDITABLE_CONFIG_FIELDS`);
+  }
+});
+
+
 test("ConfigStore mutates the exact same config object it was constructed with (reference semantics consumers rely on)", async () => {
   const initial = makeTestConfig({ defaultModel: "composer-2.5" });
   const store = new ConfigStore(initial, silentLog);

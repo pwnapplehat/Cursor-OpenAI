@@ -34,8 +34,12 @@ test("a PATCH /api/admin/config request that changes the port resolves instead o
   const config = makeTestConfig({ port: initialPort, host: "127.0.0.1", authKey: "test-admin-key" });
   const log = pino({ level: "silent" });
   const configStore = new ConfigStore(config, log);
-  const { app, sessionManager } = buildApp(configStore, log);
-  t.after(() => sessionManager.shutdown());
+  const { app, sessionManager, heldRunManager, responseStore } = buildApp(configStore, log);
+  t.after(() => {
+    heldRunManager.shutdown();
+    responseStore.shutdown();
+    sessionManager.shutdown();
+  });
 
   let server = await listen(app, initialPort, "127.0.0.1");
   t.after(() => server.close());

@@ -8,6 +8,7 @@ import type { ConfigStore } from "./configStore";
 import { ModelCatalog } from "./cursor/modelCatalog";
 import { SessionManager } from "./cursor/sessionManager";
 import { HeldRunManager } from "./cursor/heldRunManager";
+import { ResponseStore } from "./cursor/responseStore";
 import { Semaphore } from "./utils/concurrency";
 import { requestIdMiddleware } from "./middleware/requestId";
 import { authMiddleware } from "./middleware/auth";
@@ -18,6 +19,7 @@ import { createChatCompletionsRouter } from "./routes/chatCompletions";
 import { createLegacyCompletionsRouter } from "./routes/completionsLegacy";
 import { createModelsRouter } from "./routes/models";
 import { createEmbeddingsRouter } from "./routes/embeddings";
+import { createResponsesRouter } from "./routes/responses";
 import { createHealthRouter } from "./routes/health";
 import { createAdminRouter } from "./routes/admin";
 import type { GatewayDeps } from "./gateway/orchestrator";
@@ -27,6 +29,7 @@ export interface AppInstance {
   app: Express;
   sessionManager: SessionManager;
   heldRunManager: HeldRunManager;
+  responseStore: ResponseStore;
 }
 
 const PUBLIC_DIR = path.join(__dirname, "..", "public");
@@ -39,9 +42,10 @@ export function buildApp(configStore: ConfigStore, log: Logger): AppInstance {
   const modelCatalog = new ModelCatalog(log);
   const sessionManager = new SessionManager(config, log);
   const heldRunManager = new HeldRunManager(log);
+  const responseStore = new ResponseStore(config);
   const semaphore = new Semaphore(config.maxConcurrentRuns);
   const activityLog = new ActivityLog();
-  const deps: GatewayDeps = { config, log, modelCatalog, sessionManager, semaphore, activityLog, heldRunManager };
+  const deps: GatewayDeps = { config, log, modelCatalog, sessionManager, semaphore, activityLog, heldRunManager, responseStore };
 
   app.use(
     helmet({
@@ -92,11 +96,11 @@ export function buildApp(configStore: ConfigStore, log: Logger): AppInstance {
       name: "cursor-openai-gateway",
       description: "OpenAI-compatible API gateway backed by the Cursor Agent SDK.",
       dashboard: "/",
-      endpoints: ["/health", "/v1/chat/completions", "/v1/completions", "/v1/models", "/v1/models/:id", "/v1/embeddings"],
+      endpoints: ["/health", "/v1/chat/completions", "/v1/completions", "/v1/responses", "/v1/responses/:id", "/v1/models", "/v1/models/:id", "/v1/embeddings"],
     });
   });
 
-  app.use(createHealthRouter(config, sessionManager, semaphore, heldRunManager));
+  app.use(createHealthRouter(config, sessionManager, semaphore, heldRunManager, responseStore));
   app.use("/api/admin", loopbackOnlyMiddleware(config), createAdminRouter(deps, configStore));
 
   const v1Router = express.Router();
@@ -104,12 +108,13 @@ export function buildApp(configStore: ConfigStore, log: Logger): AppInstance {
   v1Router.use(authMiddleware(config));
   v1Router.use(createChatCompletionsRouter(deps));
   v1Router.use(createLegacyCompletionsRouter(deps));
-  v1Router.use(createModelsRouter(modelCatalog));
+  v1Router.use(createResponsesRouter(deps));
+  v1Router.use(createModelsRouter(modelCatalog, config));
   v1Router.use(createEmbeddingsRouter());
   app.use(v1Router);
 
   app.use(notFoundHandler());
   app.use(errorHandlerMiddleware());
 
-  return { app, sessionManager, heldRunManager };
+  return { app, sessionManager, heldRunManager, responseStore };
 }

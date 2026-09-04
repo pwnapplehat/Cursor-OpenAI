@@ -43,8 +43,11 @@ async function main(): Promise<void> {
   await record("GET /health", async () => {
     const res = await fetch(`${BASE_URL}/health`);
     if (!res.ok) throw new Error(`status ${res.status}`);
-    const body = (await res.json()) as { status: string };
+    const body = (await res.json()) as { status: string; storedResponses?: number; heldRuns?: number };
     if (body.status !== "ok") throw new Error(`unexpected body: ${JSON.stringify(body)}`);
+    if (typeof body.storedResponses !== "number" || typeof body.heldRuns !== "number") {
+      throw new Error(`health payload missing storedResponses/heldRuns: ${JSON.stringify(body)}`);
+    }
     return "status ok";
   });
 
@@ -53,7 +56,10 @@ async function main(): Promise<void> {
     if (!res.ok) throw new Error(`status ${res.status}: ${await res.text()}`);
     const body = (await res.json()) as { data: Array<{ id: string }> };
     if (!Array.isArray(body.data) || body.data.length === 0) throw new Error("model list was empty");
-    return `${body.data.length} models, e.g. ${body.data[0]!.id}`;
+    const ids = body.data.map((m) => m.id);
+    if (!ids.includes("composer-2.5")) throw new Error(`canonical list missing composer-2.5; got ${ids.slice(0, 8).join(", ")}...`);
+    const fastListed = ids.includes("composer-2.5-fast") ? ", composer-2.5-fast listed" : "";
+    return `${body.data.length} models, composer-2.5 present${fastListed}`;
   });
 
   await record("POST /v1/chat/completions (non-streaming)", async () => {
@@ -154,6 +160,127 @@ async function main(): Promise<void> {
     const text = body.choices[0]?.text ?? "";
     if (!text) throw new Error("empty legacy completion text");
     return `got: "${text.trim().slice(0, 60)}"`;
+  });
+
+  let lastResponseId: string | undefined;
+  await record("POST /v1/responses (non-streaming)", async () => {
+    const res = await fetch(`${BASE_URL}/v1/responses`, {
+      method: "POST",
+      headers: headers(),
+      body: JSON.stringify({
+        model: MODEL,
+        instructions: "Reply with exactly one short sentence. No markdown.",
+        input: "Say hello and name the current AI coding tool you are running on top of.",
+      }),
+    });
+    if (!res.ok) throw new Error(`status ${res.status}: ${await res.text()}`);
+    const body = (await res.json()) as {
+      id: string;
+      object: string;
+      status: string;
+      output: Array<{ type: string; content?: Array<{ type: string; text?: string }> }>;
+    };
+    if (body.object !== "response") throw new Error(`unexpected object: ${body.object}`);
+    if (body.status !== "completed") throw new Error(`unexpected status: ${body.status}`);
+    const text = body.output.find((item) => item.type === "message")?.content?.[0]?.text ?? "";
+    if (!text.trim()) throw new Error("empty responses output text");
+    if (!body.id) throw new Error("missing response id");
+    lastResponseId = body.id;
+    return `got ${text.length} chars: "${text.slice(0, 80).replace(/\n/g, " ")}${text.length > 80 ? "..." : ""}"`;
+  });
+
+  await record("GET /v1/responses/:id", async () => {
+    if (!lastResponseId) throw new Error("previous responses call did not produce an id");
+    const res = await fetch(`${BASE_URL}/v1/responses/${lastResponseId}`, { headers: headers() });
+    if (!res.ok) throw new Error(`status ${res.status}: ${await res.text()}`);
+    const body = (await res.json()) as { id: string; object: string };
+    if (body.object !== "response" || body.id !== lastResponseId) {
+      throw new Error(`unexpected retrieve payload: ${JSON.stringify(body)}`);
+    }
+    return `retrieved ${body.id}`;
+  });
+
+  await record("POST /v1/responses (previous_response_id)", async () => {
+    if (!lastResponseId) throw new Error("previous responses call did not produce an id");
+    const res = await fetch(`${BASE_URL}/v1/responses`, {
+      method: "POST",
+      headers: headers(),
+      body: JSON.stringify({
+        model: MODEL,
+        previous_response_id: lastResponseId,
+        input: "Reply with just the word CONTINUE.",
+      }),
+    });
+    if (!res.ok) throw new Error(`status ${res.status}: ${await res.text()}`);
+    const body = (await res.json()) as {
+      object: string;
+      status: string;
+      output: Array<{ type: string; content?: Array<{ type: string; text?: string }> }>;
+    };
+    if (body.object !== "response" || body.status !== "completed") {
+      throw new Error(`unexpected follow-up payload: ${JSON.stringify(body)}`);
+    }
+    const text = body.output.find((item) => item.type === "message")?.content?.[0]?.text ?? "";
+    if (!text.trim()) throw new Error("empty previous_response_id follow-up text");
+    return `continued ${lastResponseId}: "${text.slice(0, 60).replace(/\n/g, " ")}"`;
+  });
+
+  await record("POST /v1/responses (streaming)", async () => {
+    const res = await fetch(`${BASE_URL}/v1/responses`, {
+      method: "POST",
+      headers: headers(),
+      body: JSON.stringify({
+        model: MODEL,
+        stream: true,
+        instructions: "Reply with exactly the word PONG and nothing else.",
+        input: "ping",
+      }),
+    });
+    if (!res.ok) throw new Error(`status ${res.status}: ${await res.text()}`);
+    if (!res.body) throw new Error("no response body stream");
+
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+    let sawCreated = false;
+    let sawCompleted = false;
+    let sawDone = false;
+    let streamedItemId: string | undefined;
+    let completedItemId: string | undefined;
+
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split("\n");
+      buffer = lines.pop() ?? "";
+      for (const line of lines) {
+        const trimmed = line.trim();
+        if (trimmed === "data: [DONE]") {
+          sawDone = true;
+          continue;
+        }
+        if (!trimmed.startsWith("data: ")) continue;
+        const parsed = JSON.parse(trimmed.slice(6)) as {
+          type?: string;
+          item_id?: string;
+          response?: { output?: Array<{ type: string; id?: string }> };
+        };
+        if (parsed.type === "response.created") sawCreated = true;
+        if (parsed.type === "response.output_text.delta" && parsed.item_id) streamedItemId = parsed.item_id;
+        if (parsed.type === "response.completed") {
+          sawCompleted = true;
+          completedItemId = parsed.response?.output?.find((item) => item.type === "message")?.id;
+        }
+      }
+    }
+    if (!sawCreated) throw new Error("stream never sent response.created");
+    if (!sawCompleted) throw new Error("stream never sent response.completed");
+    if (!sawDone) throw new Error("stream never sent [DONE]");
+    if (streamedItemId && completedItemId && streamedItemId !== completedItemId) {
+      throw new Error(`stream item id ${streamedItemId} did not match completed output id ${completedItemId}`);
+    }
+    return `named SSE + [DONE]${streamedItemId ? `, item id ${streamedItemId}` : ""}`;
   });
 
   await record("POST /v1/embeddings returns a clear not-implemented error", async () => {

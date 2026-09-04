@@ -6,7 +6,7 @@ export interface ActivityEntry {
   id: string;
   timestamp: number;
   requestId: string;
-  endpoint: "/v1/chat/completions" | "/v1/completions" | "/api/admin/test-chat";
+  endpoint: "/v1/chat/completions" | "/v1/completions" | "/v1/responses" | "/api/admin/test-chat";
   model: string;
   streaming: boolean;
   status: ActivityStatus;
@@ -35,7 +35,7 @@ const HOUR_MS = 3_600_000;
  * live-operations view, not an analytics warehouse) ring buffer of recent
  * gateway activity, plus running aggregate counters, powering the admin
  * dashboard's Overview and Activity views. Every real request path (chat
- * completions, legacy completions, and the admin dashboard's own test-chat)
+ * completions, legacy completions, Responses API, and the admin dashboard's own test-chat)
  * records through the same `record()` call in `gateway/orchestrator.ts`, so
  * the dashboard reflects genuine traffic, not a mocked-up preview.
  */

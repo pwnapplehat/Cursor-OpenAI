@@ -239,3 +239,36 @@ test("SessionManager.evictAll clears every cached session and reports how many w
   assert.equal(removed, 2);
   assert.equal(manager.listSessions().length, 0);
 });
+
+test("SessionManager auto-session does not reuse a Fast agent for a non-Fast request of the same model id", async (t) => {
+  let createCount = 0;
+  const originalCreate = Agent.create;
+  Agent.create = (() => {
+    createCount += 1;
+    return Promise.resolve(makeFakeAgent(`agent-${createCount}`));
+  }) as typeof Agent.create;
+  t.after(() => {
+    Agent.create = originalCreate;
+  });
+
+  const manager = new SessionManager(makeConfig(), silentLog);
+  t.after(() => manager.shutdown());
+
+  const nonFast = { id: "composer-2.5", params: [{ id: "fast", value: "false" }] };
+  const fast = { id: "composer-2.5", params: [{ id: "fast", value: "true" }] };
+  const turn1 = [{ role: "user" as const, content: "hi" }];
+  const turn1WithReply = [...turn1, { role: "assistant" as const, content: "hello" }];
+
+  const handle1 = await manager.resolve({ apiKey: "k", model: nonFast, messages: turn1, metadata: undefined });
+  manager.remember({ apiKey: "k", model: nonFast, messages: turn1WithReply, handle: handle1 });
+
+  const handle2 = await manager.resolve({
+    apiKey: "k",
+    model: fast,
+    messages: [...turn1WithReply, { role: "user", content: "more" }],
+    metadata: undefined,
+  });
+
+  assert.equal(createCount, 2, "Fast vs non-Fast must not share an auto-session agent");
+  assert.notEqual(handle2.agent.agentId, handle1.agent.agentId);
+});

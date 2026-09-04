@@ -19,3 +19,15 @@ export function newToolCallId(): string {
 export function newRequestId(): string {
   return `req_${shortId()}`;
 }
+
+export function newResponseId(): string {
+  return `resp_${shortId()}`;
+}
+
+export function newMessageId(): string {
+  return `msg_${shortId()}`;
+}
+
+export function newFunctionCallItemId(): string {
+  return `fc_${shortId()}`;
+}

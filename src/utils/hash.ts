@@ -9,6 +9,13 @@ export function normalizeContent(content: ChatCompletionMessage["content"]): str
     .join("\u0003");
 }
 
+/** Stable cache key for a ModelSelection so auto-session does not reuse a Fast agent for a non-Fast request (or vice versa). */
+export function modelSelectionKey(model: { id: string; params?: Array<{ id: string; value: string }> }): string {
+  if (!model.params || model.params.length === 0) return model.id;
+  const sorted = [...model.params].sort((a, b) => a.id.localeCompare(b.id));
+  return `${model.id}|${sorted.map((p) => `${p.id}=${p.value}`).join(",")}`;
+}
+
 /**
  * Stable content hash of a message array, used to auto-detect when a new
  * request's `messages[]` is a continuation of a previously seen conversation

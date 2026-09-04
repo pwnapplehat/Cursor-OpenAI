@@ -207,3 +207,123 @@ export interface OpenAIErrorBody {
     code?: string | null;
   };
 }
+
+// ---------------------------------------------------------------------------
+// OpenAI Responses API (POST /v1/responses) - the subset this gateway
+// translates onto the existing Cursor agent pipeline.
+// ---------------------------------------------------------------------------
+
+export type ResponsesStatus = "completed" | "incomplete" | "failed" | "cancelled" | "in_progress";
+
+export interface ResponsesContentPartText {
+  type: "output_text";
+  text: string;
+}
+
+export interface ResponsesMessageItem {
+  type: "message";
+  id: string;
+  status: "in_progress" | "completed";
+  role: "assistant";
+  content: ResponsesContentPartText[];
+}
+
+export interface ResponsesFunctionCallItem {
+  type: "function_call";
+  id: string;
+  call_id: string;
+  name: string;
+  arguments: string;
+  status: "in_progress" | "completed";
+}
+
+export type ResponsesOutputItem = ResponsesMessageItem | ResponsesFunctionCallItem;
+
+export interface ResponsesUsage {
+  input_tokens: number;
+  output_tokens: number;
+  total_tokens: number;
+  input_tokens_details?: { cached_tokens: number };
+  output_tokens_details?: { reasoning_tokens: number };
+}
+
+export interface ResponsesObject {
+  id: string;
+  object: "response";
+  created_at: number;
+  status: ResponsesStatus;
+  model: string;
+  output: ResponsesOutputItem[];
+  usage?: ResponsesUsage;
+  error?: { message: string; type?: string } | null;
+  incomplete_details?: { reason: string } | null;
+  /** Non-standard: the Cursor agent that served this turn. */
+  cursor_agent_id?: string;
+}
+
+export interface ResponsesFunctionTool {
+  type: "function";
+  name: string;
+  description?: string;
+  parameters?: Record<string, unknown>;
+}
+
+export type ResponsesTool = ResponsesFunctionTool | ChatCompletionTool;
+
+export type ResponsesEasyInputRole = "user" | "assistant" | "system" | "developer";
+
+export interface ResponsesEasyMessage {
+  type?: "message";
+  role: ResponsesEasyInputRole;
+  content: string | ChatCompletionContentPart[] | ResponsesInputContentPart[];
+}
+
+export interface ResponsesInputTextPart {
+  type: "input_text" | "output_text" | "text";
+  text: string;
+}
+
+export interface ResponsesInputImagePart {
+  type: "input_image";
+  image_url: string | { url: string };
+}
+
+export type ResponsesInputContentPart = ResponsesInputTextPart | ResponsesInputImagePart | ChatCompletionContentPart;
+
+export interface ResponsesFunctionCallInput {
+  type: "function_call";
+  call_id: string;
+  name: string;
+  arguments: string;
+}
+
+export interface ResponsesFunctionCallOutput {
+  type: "function_call_output";
+  call_id: string;
+  output: string;
+}
+
+export type ResponsesInputItem =
+  | string
+  | ResponsesEasyMessage
+  | ResponsesFunctionCallInput
+  | ResponsesFunctionCallOutput
+  | ResponsesInputTextPart;
+
+export interface ResponsesRequest {
+  model: string;
+  input: string | ResponsesInputItem[];
+  instructions?: string;
+  stream?: boolean;
+  tools?: ResponsesTool[];
+  previous_response_id?: string;
+  metadata?: ChatCompletionRequestMetadata;
+  store?: boolean;
+}
+
+export type ResponsesStreamEvent = {
+  type: string;
+  sequence_number: number;
+  [key: string]: unknown;
+};
+

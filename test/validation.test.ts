@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { validateChatCompletionRequest, validateCompletionRequest } from "../src/validation";
+import { validateChatCompletionRequest, validateCompletionRequest, validateResponsesRequest } from "../src/validation";
 import { HttpError } from "../src/errors";
 
 test("validateChatCompletionRequest accepts a minimal valid request", () => {
@@ -68,4 +68,26 @@ test("validateCompletionRequest accepts a string prompt", () => {
 
 test("validateCompletionRequest rejects a missing prompt", () => {
   assert.throws(() => validateCompletionRequest({ model: "auto" }), HttpError);
+});
+
+test("validateResponsesRequest accepts a string input", () => {
+  const req = validateResponsesRequest({ model: "composer-2.5", input: "Hello" });
+  assert.equal(req.model, "composer-2.5");
+  assert.equal(req.input, "Hello");
+});
+
+test("validateResponsesRequest rejects a missing input", () => {
+  assert.throws(() => validateResponsesRequest({ model: "composer-2.5" }), HttpError);
+});
+
+test("validateResponsesRequest accepts previous_response_id with an empty input array", () => {
+  const req = validateResponsesRequest({ model: "composer-2.5", input: [], previous_response_id: "resp_abc" });
+  assert.equal(req.previous_response_id, "resp_abc");
+});
+
+test("validateResponsesRequest rejects an empty input array when previous_response_id is blank", () => {
+  assert.throws(
+    () => validateResponsesRequest({ model: "composer-2.5", input: [], previous_response_id: "   " }),
+    HttpError,
+  );
 });

@@ -1,5 +1,5 @@
 import { HttpError } from "./errors";
-import type { ChatCompletionMessage, ChatCompletionRequest, ChatRole, CompletionRequest } from "./types/openai";
+import type { ChatCompletionMessage, ChatCompletionRequest, ChatRole, CompletionRequest, ResponsesInputItem, ResponsesRequest, ResponsesTool } from "./types/openai";
 
 // "developer" is OpenAI's successor to "system" for reasoning-model requests
 // (their API treats the two as aliases); clients like Hermes send it for
@@ -92,5 +92,39 @@ export function validateCompletionRequest(body: unknown): CompletionRequest {
   if (typeof body["max_tokens"] === "number") request.max_tokens = body["max_tokens"];
   if (typeof body["user"] === "string") request.user = body["user"];
   if (isPlainObject(body["metadata"])) request.metadata = body["metadata"] as CompletionRequest["metadata"];
+  return request;
+}
+
+export function validateResponsesRequest(body: unknown): ResponsesRequest {
+  if (!isPlainObject(body)) {
+    throw HttpError.badRequest("Request body must be a JSON object");
+  }
+  const model = body["model"];
+  if (typeof model !== "string" || model.trim().length === 0) {
+    throw HttpError.badRequest('"model" is required and must be a non-empty string', "model");
+  }
+  const input = body["input"];
+  if (typeof input !== "string" && !Array.isArray(input)) {
+    throw HttpError.badRequest('"input" is required and must be a string or an array of input items', "input");
+  }
+  if (typeof input === "string" && input.length === 0) {
+    throw HttpError.badRequest('"input" must not be an empty string', "input");
+  }
+  if (Array.isArray(input) && input.length === 0) {
+    const previousId = typeof body["previous_response_id"] === "string" ? body["previous_response_id"].trim() : "";
+    if (!previousId) {
+      throw HttpError.badRequest('"input" must be a non-empty array unless continuing a previous_response_id', "input");
+    }
+  }
+
+  const request: ResponsesRequest = { model, input: input as string | ResponsesInputItem[] };
+  if (typeof body["instructions"] === "string") request.instructions = body["instructions"];
+  if (typeof body["stream"] === "boolean") request.stream = body["stream"];
+  if (typeof body["previous_response_id"] === "string" && body["previous_response_id"].trim().length > 0) {
+    request.previous_response_id = body["previous_response_id"].trim();
+  }
+  if (typeof body["store"] === "boolean") request.store = body["store"];
+  if (Array.isArray(body["tools"])) request.tools = body["tools"] as ResponsesTool[];
+  if (isPlainObject(body["metadata"])) request.metadata = body["metadata"] as ResponsesRequest["metadata"];
   return request;
 }

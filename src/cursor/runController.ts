@@ -70,7 +70,7 @@ export async function runTurn(params: RunTurnParams): Promise<RunOutcome> {
     local: customTools ? { customTools } : undefined,
   });
 
-  log.info({ runId: run.id, agentId: run.agentId }, "cursor run started");
+  log.info({ runId: run.id, agentId: run.agentId, model }, "cursor run started");
 
   const textAcc = new TextAccumulator();
   const reasoningAcc = new TextAccumulator();

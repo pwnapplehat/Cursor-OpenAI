@@ -243,7 +243,7 @@ test(
     () => Promise.resolve(modelsWithVariants),
     async () => {
       const catalog = new ModelCatalog(silentLog);
-      const list = await catalog.toOpenAIModelList("key");
+      const list = await catalog.toOpenAIModelList("key", { mode: "all" });
       const ids = list.data.map((m) => m.id);
       for (const expected of ["gpt-5.4-mini-none", "gpt-5.4-mini-low", "gpt-5.4-mini-high", "gpt-5.4-mini-xhigh", "claude-sonnet-5-thinking", "claude-sonnet-5-1m"]) {
         assert.ok(ids.includes(expected), `missing ${expected}`);
@@ -273,10 +273,23 @@ test(
     () => Promise.resolve(sampleModels),
     async () => {
       const catalog = new ModelCatalog(silentLog);
-      const list = await catalog.toOpenAIModelList("key");
+      const list = await catalog.toOpenAIModelList("key", { mode: "all" });
       const ids = list.data.map((m) => m.id).sort();
       assert.deepEqual(ids, ["claude-4.5-sonnet-thinking", "claude-sonnet", "composer-2.5", "composer-2.5-fast"].sort());
       assert.ok(list.data.every((m) => m.object === "model" && m.owned_by === "cursor"));
+    },
+  ),
+);
+
+test(
+  "toOpenAIModelList canonical mode omits aliases but keeps useful variants",
+  withMockedModelsList(
+    () => Promise.resolve(sampleModels),
+    async () => {
+      const catalog = new ModelCatalog(silentLog);
+      const list = await catalog.toOpenAIModelList("key", { mode: "canonical" });
+      const ids = list.data.map((m) => m.id).sort();
+      assert.deepEqual(ids, ["claude-4.5-sonnet-thinking", "composer-2.5"].sort());
     },
   ),
 );
@@ -287,7 +300,7 @@ test(
     () => Promise.resolve(modelsWithContext),
     async () => {
       const catalog = new ModelCatalog(silentLog);
-      const list = await catalog.toOpenAIModelList("key");
+      const list = await catalog.toOpenAIModelList("key", { mode: "all" });
       const sonnet = list.data.find((m) => m.id === "claude-sonnet-5");
       assert.equal(sonnet?.context_length, 1_000_000, "default variant pins 1m");
       const sonnetAlias = list.data.find((m) => m.id === "sonnet-latest");
@@ -355,3 +368,81 @@ test("list() fetches independently per API key", async (t) => {
   await catalog.list("key-c2");
   assert.equal(calls, 2);
 });
+
+const composerWithFast: SDKModel[] = [
+  {
+    id: "composer-2.5",
+    displayName: "Composer 2.5",
+    aliases: ["composer-2.5-fast"],
+    parameters: [
+      { id: "fast", displayName: "Fast", values: [{ value: "false" }, { value: "true" }] },
+    ],
+    variants: [
+      { params: [{ id: "fast", value: "true" }], displayName: "Composer 2.5 Fast", isDefault: true },
+      { params: [{ id: "fast", value: "false" }], displayName: "Composer 2.5" },
+    ],
+  },
+];
+
+test(
+  "resolveModelSelection sends explicit fast=false for the bare composer-2.5 id (Cursor's catalog default is Fast)",
+  withMockedModelsList(
+    () => Promise.resolve(composerWithFast),
+    async () => {
+      const catalog = new ModelCatalog(silentLog);
+      const result = await catalog.resolveModelSelection("key", "composer-2.5", "composer-2.5");
+      assert.deepEqual(result, { id: "composer-2.5", params: [{ id: "fast", value: "false" }] });
+    },
+  ),
+);
+
+test(
+  "resolveModelSelection parses composer-2.5-fast as fast=true BEFORE alias collapse",
+  withMockedModelsList(
+    () => Promise.resolve(composerWithFast),
+    async () => {
+      const catalog = new ModelCatalog(silentLog);
+      const result = await catalog.resolveModelSelection("key", "composer-2.5-fast", "composer-2.5");
+      assert.equal(result.id, "composer-2.5");
+      const fast = result.params?.find((p) => p.id === "fast");
+      assert.equal(fast?.value, "true");
+    },
+  ),
+);
+
+test(
+  "toOpenAIModelList always lists <id>-fast when the catalog has a fast parameter, even if Fast is the default variant",
+  withMockedModelsList(
+    () => Promise.resolve(composerWithFast),
+    async () => {
+      const catalog = new ModelCatalog(silentLog);
+      const list = await catalog.toOpenAIModelList("key", { mode: "canonical" });
+      const ids = list.data.map((m) => m.id).sort();
+      assert.deepEqual(ids, ["composer-2.5", "composer-2.5-fast"].sort());
+    },
+  ),
+);
+
+test(
+  "toOpenAIModelList ALLOWED_MODELS filters listed ids without inventing extras",
+  withMockedModelsList(
+    () => Promise.resolve(modelsWithVariants),
+    async () => {
+      const catalog = new ModelCatalog(silentLog);
+      const list = await catalog.toOpenAIModelList("key", { mode: "canonical", allowedModels: ["gpt-5.4-mini", "gpt-5.4-mini-xhigh"] });
+      assert.deepEqual(list.data.map((m) => m.id).sort(), ["gpt-5.4-mini", "gpt-5.4-mini-xhigh"].sort());
+    },
+  ),
+);
+
+test(
+  "lookupOpenAIModel still finds an alias that canonical listing omitted",
+  withMockedModelsList(
+    () => Promise.resolve(sampleModels),
+    async () => {
+      const catalog = new ModelCatalog(silentLog);
+      const found = await catalog.lookupOpenAIModel("key", "claude-sonnet", { mode: "canonical" });
+      assert.equal(found?.id, "claude-sonnet");
+    },
+  ),
+);
