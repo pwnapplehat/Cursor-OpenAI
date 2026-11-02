@@ -457,6 +457,19 @@
             </div>
             <div class="settings-row">
               <div class="settings-row-info">
+                <div class="settings-row-title">Cursor built-in tools</div>
+                <div class="settings-row-desc">Local runtime only. "All" is Cursor's default toolset. "MCP only" disables Cursor builtins (shell/read/edit/webSearch/...) while still allowing the OpenAI tool bridge so client <code>tools[]</code> work. "None" is text-only. Project/user skills stay off via <code>settingSources: []</code>.</div>
+              </div>
+              <div class="settings-row-control">
+                <select data-field="cursorToolsPolicy" class="input-field">
+                  <option value="all">All (Cursor default toolset)</option>
+                  <option value="mcp-only">MCP only (client tools[]; no Cursor builtins)</option>
+                  <option value="none">None (text-only)</option>
+                </select>
+              </div>
+            </div>
+            <div class="settings-row">
+              <div class="settings-row-info">
                 <div class="settings-row-title">Tool-calling bridge</div>
                 <div class="settings-row-desc">Translates OpenAI <code>tools[]</code> function-calling into Cursor's native tool system (local runtime only).</div>
               </div>

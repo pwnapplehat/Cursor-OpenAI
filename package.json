@@ -42,7 +42,7 @@
     "smoke:hold-mode": "tsx scripts/smoke-test-hold-mode.ts"
   },
   "dependencies": {
-    "@cursor/sdk": "^1.0.22",
+    "@cursor/sdk": "^1.2.0",
     "cors": "^2.8.5",
     "dotenv": "^16.4.5",
     "express": "^4.21.2",

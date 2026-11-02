@@ -22,6 +22,7 @@ export const CONFIG_FIELD_TYPES = Object.freeze({
   cursorKeyMode: "string",
   cursorRuntime: "string",
   cursorAgentMode: "string",
+  cursorToolsPolicy: "string",
   logLevel: "string",
   cursorWorkdirRoot: "string",
   nodeEnv: "string",

@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { randomBytes } from "node:crypto";
-import { isSetupComplete, validateAgentMode, validateKeyMode, validateLogLevel, validateModelListMode, validateRuntime, validateToolBridgeMode, type AppConfig } from "./config";
+import { isSetupComplete, validateAgentMode, validateKeyMode, validateLogLevel, validateModelListMode, validateRuntime, validateToolBridgeMode, validateToolsPolicy, type AppConfig } from "./config";
 import { HttpError } from "./errors";
 import type { Logger } from "./logger";
 
@@ -51,7 +51,7 @@ const EDITABLE_INT_FIELDS = [
   "port",
   "jsonBodyLimitMb",
 ] as const;
-const EDITABLE_ENUM_FIELDS = ["cursorKeyMode", "cursorRuntime", "cursorAgentMode", "logLevel", "toolBridgeMode", "modelListMode"] as const;
+const EDITABLE_ENUM_FIELDS = ["cursorKeyMode", "cursorRuntime", "cursorAgentMode", "cursorToolsPolicy", "logLevel", "toolBridgeMode", "modelListMode"] as const;
 /** Handled by their own dedicated validation blocks in `validate()`, not the generic string/bool/int loops - listed here purely so `isEditableField`/config-import treats them as recognized, editable fields. */
 const EDITABLE_SPECIAL_FIELDS = ["authKey", "allowedModels"] as const;
 
@@ -296,6 +296,16 @@ export class ConfigStore {
         patch.cursorAgentMode = validateAgentMode(value);
       } catch {
         throw HttpError.badRequest('"cursorAgentMode" must be "agent" or "plan"', "cursorAgentMode");
+      }
+    }
+
+    if ("cursorToolsPolicy" in input) {
+      const value = input["cursorToolsPolicy"];
+      if (typeof value !== "string") throw HttpError.badRequest('"cursorToolsPolicy" must be a string', "cursorToolsPolicy");
+      try {
+        patch.cursorToolsPolicy = validateToolsPolicy(value);
+      } catch {
+        throw HttpError.badRequest('"cursorToolsPolicy" must be "all", "mcp-only", or "none"', "cursorToolsPolicy");
       }
     }
 

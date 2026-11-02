@@ -3,11 +3,17 @@ import fs from "node:fs";
 import { createHash } from "node:crypto";
 import { Agent } from "@cursor/sdk";
 import type { SDKAgent, ModelSelection } from "@cursor/sdk";
-import type { AppConfig } from "../config";
+import { resolveSdkToolsOption, type AppConfig } from "../config";
 import type { Logger } from "../logger";
 import type { ChatCompletionMessage, ChatCompletionRequestMetadata } from "../types/openai";
 import { computeNewSuffix, hashMessages, modelSelectionKey } from "../utils/hash";
 import { Mutex } from "../utils/concurrency";
+
+/** SDK `tools` allowlist for the current config; only applied on local runtime. */
+function localToolsOption(config: AppConfig): string[] | undefined {
+  if (config.cursorRuntime !== "local") return undefined;
+  return resolveSdkToolsOption(config.cursorToolsPolicy);
+}
 
 export interface SessionHandle {
   agent: SDKAgent;
@@ -98,7 +104,13 @@ export class SessionManager {
       const cached = this.entries.get(key);
       if (cached) return this.toHandle(key, cached, messages);
 
-      const agent = await Agent.resume(resumeId, { apiKey });
+      // `tools` is not persisted on the agent - must be re-supplied on resume
+      // or Cursor's default builtins come back (see @cursor/sdk AgentOptions.tools).
+      const tools = localToolsOption(this.config);
+      const agent = await Agent.resume(resumeId, {
+        apiKey,
+        ...(tools !== undefined ? { tools } : {}),
+      });
       const cwd = this.ensureCwd(key);
       // A resumed agent already has real history on Cursor's side even
       // though we've never seen it locally - treat every message the client
@@ -227,11 +239,16 @@ export class SessionManager {
 
   private async createEntry(apiKey: string, model: ModelSelection, key: string): Promise<SessionEntry> {
     const cwd = this.ensureCwd(key);
+    // settingSources: [] keeps Cursor project/user skills & local settings off.
+    // tools policy (e.g. ["mcp"]) can keep Cursor builtins off while still
+    // allowing the OpenAI tool-bridge's customTools from the client.
+    const tools = localToolsOption(this.config);
     const agent = await Agent.create({
       apiKey,
       model,
       name: "cursor-openai-gateway",
       mode: this.config.cursorAgentMode,
+      ...(tools !== undefined ? { tools } : {}),
       local:
         this.config.cursorRuntime === "local"
           ? { cwd, settingSources: [], enableAgentRetries: true }

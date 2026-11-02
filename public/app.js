@@ -751,6 +751,7 @@ function populateSettingsForms() {
   setField("sessionTtlMinutes", msToMinutes(c.sessionTtlMs));
   setField("maxCachedAgents", c.maxCachedAgents);
   setField("cursorAgentMode", c.cursorAgentMode);
+  setField("cursorToolsPolicy", c.cursorToolsPolicy || "all");
   setField("includeThinking", c.includeThinking, true);
   setField("toolBridgeEnabled", c.toolBridgeEnabled, true);
   setField("toolBridgeMode", c.toolBridgeMode);
@@ -909,6 +910,7 @@ function initSettingsForms() {
     }),
     behavior: () => ({
       includeThinking: getField(forms.behavior, "includeThinking").checked,
+      cursorToolsPolicy: getField(forms.behavior, "cursorToolsPolicy").value,
       toolBridgeEnabled: getField(forms.behavior, "toolBridgeEnabled").checked,
       toolBridgeMode: getField(forms.behavior, "toolBridgeMode").value,
       toolResultTimeoutMs: secondsToMs(getField(forms.behavior, "toolResultTimeoutSeconds").value),
