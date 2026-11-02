@@ -101,17 +101,25 @@ test("ConfigStore.update enforces jsonBodyLimitMb bounds (1-1024)", async () => 
   assert.equal(store.config.jsonBodyLimitMb, 50);
 });
 
-test("ConfigStore.update validates enum-like fields (cursorKeyMode, cursorRuntime, cursorAgentMode, logLevel)", async () => {
+test("ConfigStore.update validates enum-like fields (cursorKeyMode, cursorRuntime, cursorAgentMode, cursorToolsPolicy, logLevel)", async () => {
   const store = new ConfigStore(makeTestConfig(), silentLog);
   await assert.rejects(() => store.update({ cursorKeyMode: "invalid" }), HttpError);
   await assert.rejects(() => store.update({ cursorRuntime: "invalid" }), HttpError);
   await assert.rejects(() => store.update({ cursorAgentMode: "invalid" }), HttpError);
+  await assert.rejects(() => store.update({ cursorToolsPolicy: "invalid" }), HttpError);
   await assert.rejects(() => store.update({ logLevel: "invalid" }), HttpError);
 
-  await store.update({ cursorKeyMode: "passthrough", cursorRuntime: "cloud", cursorAgentMode: "plan", logLevel: "debug" });
+  await store.update({
+    cursorKeyMode: "passthrough",
+    cursorRuntime: "cloud",
+    cursorAgentMode: "plan",
+    cursorToolsPolicy: "mcp-only",
+    logLevel: "debug",
+  });
   assert.equal(store.config.cursorKeyMode, "passthrough");
   assert.equal(store.config.cursorRuntime, "cloud");
   assert.equal(store.config.cursorAgentMode, "plan");
+  assert.equal(store.config.cursorToolsPolicy, "mcp-only");
   assert.equal(store.config.logLevel, "debug");
 });
 

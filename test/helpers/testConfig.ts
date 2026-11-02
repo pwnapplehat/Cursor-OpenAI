@@ -19,6 +19,7 @@ export function makeTestConfig(overrides: Partial<AppConfig> = {}): AppConfig {
     cursorRuntime: "local",
     cursorWorkdirRoot: workdirRoot,
     cursorAgentMode: "agent",
+    cursorToolsPolicy: "all",
     defaultModel: "composer-2.5",
     includeThinking: true,
     sessionsEnabled: true,

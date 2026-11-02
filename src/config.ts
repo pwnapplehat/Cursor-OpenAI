@@ -53,6 +53,17 @@ export function optionalBool(name: string, fallback: boolean): boolean {
 export type CursorKeyMode = "server" | "passthrough";
 export type CursorRuntimeKind = "local" | "cloud";
 export type CursorAgentModeOption = "agent" | "plan";
+/**
+ * Which Cursor built-in tools a local agent is allowed to use:
+ * - `all`: SDK default toolset (shell/read/edit/...). Preserves historical
+ *   gateway behavior and is the safe default for existing deployments.
+ * - `mcp-only`: only MCP / custom tools (OpenAI `tools[]` via the tool bridge
+ *   still work; Cursor's own shell/read/webSearch/... builtins stay off).
+ * - `none`: no tools at all (text-only replies).
+ *
+ * Local runtime only; ignored for cloud (SDK rejects `tools` + `cloud`).
+ */
+export type CursorToolsPolicy = "all" | "mcp-only" | "none";
 export type LogLevel = "fatal" | "error" | "warn" | "info" | "debug" | "trace" | "silent";
 export type ToolBridgeMode = "hold" | "cancel";
 /**
@@ -73,6 +84,7 @@ export interface AppConfig {
   cursorRuntime: CursorRuntimeKind;
   cursorWorkdirRoot: string;
   cursorAgentMode: CursorAgentModeOption;
+  cursorToolsPolicy: CursorToolsPolicy;
   defaultModel: string;
   includeThinking: boolean;
   sessionsEnabled: boolean;
@@ -145,6 +157,22 @@ export function validateAgentMode(raw: string): CursorAgentModeOption {
   throw new ConfigError(`CURSOR_AGENT_MODE must be "agent" or "plan", got "${raw}"`);
 }
 
+export function validateToolsPolicy(raw: string): CursorToolsPolicy {
+  if (raw === "all" || raw === "mcp-only" || raw === "none") return raw;
+  throw new ConfigError(`CURSOR_TOOLS_POLICY must be "all", "mcp-only", or "none", got "${raw}"`);
+}
+
+/**
+ * Maps {@link CursorToolsPolicy} onto the SDK `AgentOptions.tools` allowlist.
+ * `undefined` means "do not restrict" (SDK default toolset).
+ */
+export function resolveSdkToolsOption(policy: CursorToolsPolicy): string[] | undefined {
+  if (policy === "all") return undefined;
+  if (policy === "none") return [];
+  // MCP capability group includes gateway-bridged OpenAI `tools[]` (customTools).
+  return ["mcp"];
+}
+
 export function validateToolBridgeMode(raw: string): ToolBridgeMode {
   if (raw === "hold" || raw === "cancel") return raw;
   throw new ConfigError(`TOOL_BRIDGE_MODE must be "hold" or "cancel", got "${raw}"`);
@@ -210,6 +238,10 @@ export function loadConfig(): AppConfig {
     cursorRuntime: validateRuntime(optionalString("CURSOR_RUNTIME", "local")),
     cursorWorkdirRoot,
     cursorAgentMode: validateAgentMode(optionalString("CURSOR_AGENT_MODE", "agent")),
+    // Default `all` preserves historical behavior (Cursor's full local toolset).
+    // Set `mcp-only` when clients supply their own tools[] via the bridge and
+    // Cursor builtins should stay off.
+    cursorToolsPolicy: validateToolsPolicy(optionalString("CURSOR_TOOLS_POLICY", "all")),
     defaultModel: requireString("DEFAULT_MODEL", "composer-2.5"),
     includeThinking: optionalBool("CURSOR_INCLUDE_THINKING", true),
     sessionsEnabled: optionalBool("CURSOR_ENABLE_SESSIONS", true),
